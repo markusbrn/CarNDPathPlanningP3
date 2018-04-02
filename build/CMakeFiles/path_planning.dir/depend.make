@@ -161,5 +161,9 @@ CMakeFiles/path_planning.dir/main.cpp.o: /home/markus/udacity/Projekte/Term3/Car
 CMakeFiles/path_planning.dir/main.cpp.o: /home/markus/udacity/Projekte/Term3/CarNDPathPlanning/src/Eigen-3.3/Eigen/src/plugins/MatrixCwiseUnaryOps.h
 CMakeFiles/path_planning.dir/main.cpp.o: /home/markus/udacity/Projekte/Term3/CarNDPathPlanning/src/json.hpp
 CMakeFiles/path_planning.dir/main.cpp.o: /home/markus/udacity/Projekte/Term3/CarNDPathPlanning/src/main.cpp
-CMakeFiles/path_planning.dir/main.cpp.o: /home/markus/udacity/Projekte/Term3/CarNDPathPlanning/src/spline.h
+CMakeFiles/path_planning.dir/main.cpp.o: /home/markus/udacity/Projekte/Term3/CarNDPathPlanning/src/veh.h
+
+CMakeFiles/path_planning.dir/veh.cpp.o: /home/markus/udacity/Projekte/Term3/CarNDPathPlanning/src/spline.h
+CMakeFiles/path_planning.dir/veh.cpp.o: /home/markus/udacity/Projekte/Term3/CarNDPathPlanning/src/veh.cpp
+CMakeFiles/path_planning.dir/veh.cpp.o: /home/markus/udacity/Projekte/Term3/CarNDPathPlanning/src/veh.h
 

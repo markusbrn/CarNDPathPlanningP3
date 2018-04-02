@@ -8,17 +8,12 @@
 #include "Eigen-3.3/Eigen/Core"
 #include "Eigen-3.3/Eigen/QR"
 #include "json.hpp"
-#include "spline.h"
+#include "veh.h"
 
 using namespace std;
 
 // for convenience
 using json = nlohmann::json;
-
-// For converting back and forth between radians and degrees.
-constexpr double pi() { return M_PI; }
-double deg2rad(double x) { return x * pi() / 180; }
-double rad2deg(double x) { return x * 180 / pi(); }
 
 // Checks if the SocketIO event has JSON data.
 // If there is data the JSON object in string format will be returned,
@@ -35,11 +30,7 @@ string hasData(string s) {
   return "";
 }
 
-double distance(double x1, double y1, double x2, double y2)
-{
-	return sqrt((x2-x1)*(x2-x1)+(y2-y1)*(y2-y1));
-}
-int ClosestWaypoint(double x, double y, const vector<double> &maps_x, const vector<double> &maps_y)
+/*int ClosestWaypoint(double x, double y, const vector<double> &maps_x, const vector<double> &maps_y)
 {
 
 	double closestLen = 100000; //large number
@@ -60,9 +51,9 @@ int ClosestWaypoint(double x, double y, const vector<double> &maps_x, const vect
 
 	return closestWaypoint;
 
-}
+}*/
 
-int NextWaypoint(double x, double y, double theta, const vector<double> &maps_x, const vector<double> &maps_y)
+/*int NextWaypoint(double x, double y, double theta, const vector<double> &maps_x, const vector<double> &maps_y)
 {
 
 	int closestWaypoint = ClosestWaypoint(x,y,maps_x,maps_y);
@@ -85,10 +76,10 @@ int NextWaypoint(double x, double y, double theta, const vector<double> &maps_x,
   }
 
   return closestWaypoint;
-}
+}*/
 
 // Transform from Cartesian x,y coordinates to Frenet s,d coordinates
-vector<double> getFrenet(double x, double y, double theta, const vector<double> &maps_x, const vector<double> &maps_y)
+/*vector<double> getFrenet(double x, double y, double theta, const vector<double> &maps_x, const vector<double> &maps_y)
 {
 	int next_wp = NextWaypoint(x,y, theta, maps_x,maps_y);
 
@@ -134,45 +125,26 @@ vector<double> getFrenet(double x, double y, double theta, const vector<double> 
 
 	return {frenet_s,frenet_d};
 
-}
+}*/
 
-// Transform from Frenet s,d coordinates to Cartesian x,y
-vector<double> getXY(double s, double d, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y)
-{
-	int prev_wp = -1;
-
-	while(s > maps_s[prev_wp+1] && (prev_wp < (int)(maps_s.size()-1) ))
-	{
-		prev_wp++;
-	}
-
-	int wp2 = (prev_wp+1)%maps_x.size();
-
-	double heading = atan2((maps_y[wp2]-maps_y[prev_wp]),(maps_x[wp2]-maps_x[prev_wp]));
-	// the x,y,s along the segment
-	double seg_s = (s-maps_s[prev_wp]);
-
-	double seg_x = maps_x[prev_wp]+seg_s*cos(heading);
-	double seg_y = maps_y[prev_wp]+seg_s*sin(heading);
-
-	double perp_heading = heading-pi()/2;
-
-	double x = seg_x + d*cos(perp_heading);
-	double y = seg_y + d*sin(perp_heading);
-
-	return {x,y};
-
-}
 
 int main() {
   uWS::Hub h;
 
-  // Load up map values for waypoint's x,y,s and d normalized normal vectors
+  //define ego vehicle
+  static Vehicle ego;
+  ego.lane = 1;
+  ego.max_vel_inc = .1;
+  ego.vel_lim = 49.5/2.24;
+  ego.vel_cmd = 0;
+
+  // map values for waypoint's x,y,s and d normalized normal vectors
   vector<double> map_waypoints_x;
   vector<double> map_waypoints_y;
   vector<double> map_waypoints_s;
   vector<double> map_waypoints_dx;
   vector<double> map_waypoints_dy;
+
 
   // Waypoint map to read from
   string map_file_ = "../data/highway_map.csv";
@@ -194,18 +166,13 @@ int main() {
   	iss >> s;
   	iss >> d_x;
   	iss >> d_y;
+  	//Load up map waypoints
   	map_waypoints_x.push_back(x);
   	map_waypoints_y.push_back(y);
   	map_waypoints_s.push_back(s);
   	map_waypoints_dx.push_back(d_x);
   	map_waypoints_dy.push_back(d_y);
   }
-
-  //define reference velocity
-  static double ref_vel = 0; //mph
-
-  //define lane variable
-  static int lane = 1;
 
   h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
@@ -227,140 +194,62 @@ int main() {
           // j[1] is the data JSON object
           
         	// Main car's localization Data
-          	double car_x = j[1]["x"];
-          	double car_y = j[1]["y"];
-          	double car_s = j[1]["s"];
-          	double car_d = j[1]["d"];
-          	double car_yaw = j[1]["yaw"];
-          	double car_speed = j[1]["speed"];
+          	ego.x_act = j[1]["x"];
+          	ego.y_act = j[1]["y"];
+          	ego.s_act = j[1]["s"];
+          	ego.d_act = j[1]["d"];
+          	ego.yaw_act = j[1]["yaw"];
+          	ego.speed_act = j[1]["speed"];
 
           	// Previous path data given to the Planner
           	auto previous_path_x = j[1]["previous_path_x"];
           	auto previous_path_y = j[1]["previous_path_y"];
+          	ego.previous_path_x.clear();
+          	ego.previous_path_y.clear();
+          	for(unsigned int i=0; i<previous_path_x.size(); i++) {
+          		ego.previous_path_x.push_back(previous_path_x[i]);
+          		ego.previous_path_y.push_back(previous_path_y[i]);
+          	}
           	// Previous path's end s and d values 
-          	double end_path_s = j[1]["end_path_s"];
-          	double end_path_d = j[1]["end_path_d"];
+          	ego.end_path_s = j[1]["end_path_s"];
+          	ego.end_path_d = j[1]["end_path_d"];
 
           	// Sensor Fusion Data, a list of all other cars on the same side of the road.
           	auto sensor_fusion = j[1]["sensor_fusion"];
 
-          	int prev_size = previous_path_x.size();
-
-          	if(prev_size > 0) car_s = end_path_s;
-
           	bool too_close = false;
 
+          	vector<Vehicle> predictions;
           	for(unsigned int i=0; i<sensor_fusion.size(); i++) {
-          		float d = sensor_fusion[i][6];
-          		if((d > 2+4*lane-2) && (d < 2+4*lane+2)) {
+          		double d = sensor_fusion[i][6];
+
+          		if((d > 2+4*ego.lane-2) && (d < 2+4*ego.lane+2)) {
+          			Vehicle car;
+
           			double vx = sensor_fusion[i][3];
           			double vy = sensor_fusion[i][4];
-          			double check_speed = sqrt(pow(vx,2)+pow(vy,2));
-          			double check_car_s = sensor_fusion[i][5];
+          			car.speed_act = sqrt(pow(vx,2)+pow(vy,2));
+          			car.s_act = sensor_fusion[i][5];
 
-          			check_car_s += (double)prev_size*0.02*check_speed; //check where car is after own vehicle already planned path has been executed
-
-          			if((check_car_s > car_s) && (check_car_s-car_s < 30)) {
-          				too_close = true;
+       				double check_car_s = car.s_act + ego.previous_path_x.size()*0.02*car.speed_act;
+          			if((check_car_s > ego.end_path_s) && (check_car_s-ego.end_path_s < 30)) {
+          					too_close = true;
           			}
           		}
           	}
 
-          	if(too_close) ref_vel -= .224;
-          	else if(ref_vel < 49.5) ref_vel += .224;
+          	if(too_close) ego.vel_cmd -= ego.max_vel_inc;
+          	else if(ego.vel_cmd < ego.vel_lim) ego.vel_cmd += ego.max_vel_inc;
 
-          	//define containers for path planning polynomial
-          	vector<double> ptsx;
-          	vector<double> ptsy;
+          	vector<double> next_egopath_x;
+          	vector<double> next_egopath_y;
+          	ego.JMT(next_egopath_x, next_egopath_y, map_waypoints_s, map_waypoints_x, map_waypoints_y);
 
-          	//store current car position and yaw angle; (this is only used if no previously planned path exists; otherwise the last position form the
-          	//previously planned path is used for the reference position
-          	double ref_x = car_x;
-          	double ref_y = car_y;
-          	double ref_yaw = deg2rad(car_yaw);
-
-          	//initialize ptsx,y with last two positions from previously planned path (if available) or generate previous car position
-          	//from actual position and yaw angle
-          	if(prev_size <2) {
-          		double ref_x_prev = ref_x - cos(ref_yaw);
-          		double ref_y_prev = ref_y - sin(ref_yaw);
-
-          		ptsx.push_back(ref_x_prev);
-          		ptsx.push_back(ref_x);
-          		ptsy.push_back(ref_y_prev);
-          		ptsy.push_back(ref_y);
-          	} else {
-          		ref_x = previous_path_x[prev_size-1];
-          		ref_y = previous_path_y[prev_size-1];
-
-          		double ref_x_prev = previous_path_x[prev_size-2];
-          		double ref_y_prev = previous_path_y[prev_size-2];
-          		ref_yaw = atan2(ref_y-ref_y_prev,ref_x-ref_x_prev);
-
-          		ptsx.push_back(ref_x_prev);
-          		ptsx.push_back(ref_x);
-          		ptsy.push_back(ref_y_prev);
-          		ptsy.push_back(ref_y);
-          	}
-
-          	//generate waypoints in 30, 60 and 90 meters distance from last already planned car position
-          	vector<double> next_wp0 = getXY(car_s+30, 2+4*lane, map_waypoints_s, map_waypoints_x, map_waypoints_y);
-          	vector<double> next_wp1 = getXY(car_s+60, 2+4*lane, map_waypoints_s, map_waypoints_x, map_waypoints_y);
-          	vector<double> next_wp2 = getXY(car_s+90, 2+4*lane, map_waypoints_s, map_waypoints_x, map_waypoints_y);
-
-          	//add waypoints to ptsx,y containers
-          	ptsx.push_back(next_wp0[0]);
-          	ptsx.push_back(next_wp1[0]);
-          	ptsx.push_back(next_wp2[0]);
-          	ptsy.push_back(next_wp0[1]);
-          	ptsy.push_back(next_wp1[1]);
-          	ptsy.push_back(next_wp2[1]);
-
-          	//transform ptsx,y from global to vehicle fixed KOS (makes spline interpolation easier)
-          	for(unsigned int i=0; i<ptsx.size(); i++) {
-          		double shift_x = ptsx[i] - ref_x;
-          		double shift_y = ptsy[i] - ref_y;
-
-          		ptsx[i] = shift_x * cos(-ref_yaw) - shift_y * sin(-ref_yaw);
-          		ptsy[i] = shift_x * sin(-ref_yaw) + shift_y * cos(-ref_yaw);
-          	}
-
-          	//compute spline interpolation through ptsx,y
-          	tk::spline s;
-          	s.set_points(ptsx,ptsy);
-
-          	vector<double> next_x_vals;
-          	vector<double> next_y_vals;
-
-          	//define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
-
-          	//push already planned path in next_xy_vals containers
-          	for(unsigned int i=0; i<previous_path_x.size();i++) {
-          		next_x_vals.push_back(previous_path_x[i]);
-          		next_y_vals.push_back(previous_path_y[i]);
-          	}
-
-          	double target_x = 30.; //set lookahead distance (in vehicle fixed KOS! x-direction) to 30m
-          	double target_y = s(target_x); //compute y values with previously computed spline
-          	double target_dist = sqrt(pow(target_x,2)+pow(target_y,2)); //compute actual distance
-
-          	double x_point = 0;
-          	double y_point = 0;
-
-          	for(unsigned i=0; i<=50-previous_path_x.size(); i++) {
-          		double N = (target_dist/(0.02*ref_vel/2.24)); //compute position increment during 20ms time interval when driving with ref_vel
-          		x_point += target_x/N; //increment x-position
-          		y_point = s(x_point); //compute y-position with spline function
-
-          		//derotate to global KOS and push on next_xy_vals containers
-          		next_x_vals.push_back(ref_x + x_point*cos(ref_yaw) - y_point*sin(ref_yaw));
-          		next_y_vals.push_back(ref_y + x_point*sin(ref_yaw) + y_point*cos(ref_yaw));
-          	}
           	// END
 
           	json msgJson;
-          	msgJson["next_x"] = next_x_vals;
-          	msgJson["next_y"] = next_y_vals;
+          	msgJson["next_x"] = next_egopath_x;
+          	msgJson["next_y"] = next_egopath_y;
 
           	auto msg = "42[\"control\","+ msgJson.dump()+"]";
 
