@@ -8,6 +8,8 @@
 #include "Eigen-3.3/Eigen/Core"
 #include "Eigen-3.3/Eigen/QR"
 #include "json.hpp"
+
+#include "assist.h"
 #include "veh.h"
 
 using namespace std;
@@ -64,9 +66,9 @@ string hasData(string s) {
 	double heading = atan2((map_y-y),(map_x-x));
 
 	double angle = fabs(theta-heading);
-  angle = min(2*pi() - angle, angle);
+  angle = min(2*M_PI - angle, angle);
 
-  if(angle > pi()/4)
+  if(angle > M_PI/4)
   {
     closestWaypoint++;
   if (closestWaypoint == maps_x.size())
@@ -137,6 +139,7 @@ int main() {
   ego.max_vel_inc = .1;
   ego.vel_lim = 49.5/2.24;
   ego.vel_cmd = 0;
+  ego.state = "CS";
 
   // map values for waypoint's x,y,s and d normalized normal vectors
   vector<double> map_waypoints_x;
@@ -198,7 +201,7 @@ int main() {
           	ego.y_act = j[1]["y"];
           	ego.s_act = j[1]["s"];
           	ego.d_act = j[1]["d"];
-          	ego.yaw_act = j[1]["yaw"];
+          	ego.yaw_act = deg2rad(double(j[1]["yaw"]));
           	ego.speed_act = j[1]["speed"];
 
           	// Previous path data given to the Planner
@@ -217,39 +220,32 @@ int main() {
           	// Sensor Fusion Data, a list of all other cars on the same side of the road.
           	auto sensor_fusion = j[1]["sensor_fusion"];
 
-          	bool too_close = false;
-
           	vector<Vehicle> predictions;
           	for(unsigned int i=0; i<sensor_fusion.size(); i++) {
-          		double d = sensor_fusion[i][6];
-
-          		if((d > 2+4*ego.lane-2) && (d < 2+4*ego.lane+2)) {
+          		if(fabs(ego.s_act-double(sensor_fusion[i][5])) < 50) {
           			Vehicle car;
-
+          			car.x_act = sensor_fusion[i][1];
+          			car.y_act = sensor_fusion[i][2];
+          			car.yaw_act = ego.yaw_act;
           			double vx = sensor_fusion[i][3];
           			double vy = sensor_fusion[i][4];
           			car.speed_act = sqrt(pow(vx,2)+pow(vy,2));
           			car.s_act = sensor_fusion[i][5];
+          			car.d_act = sensor_fusion[i][6];
 
-       				double check_car_s = car.s_act + ego.previous_path_x.size()*0.02*car.speed_act;
-          			if((check_car_s > ego.end_path_s) && (check_car_s-ego.end_path_s < 30)) {
-          					too_close = true;
-          			}
+          			//generate location predictions for current vehicle
+          			car.predict(map_waypoints_s, map_waypoints_x, map_waypoints_y);
+          			predictions.push_back(car);
           		}
           	}
 
-          	if(too_close) ego.vel_cmd -= ego.max_vel_inc;
-          	else if(ego.vel_cmd < ego.vel_lim) ego.vel_cmd += ego.max_vel_inc;
-
-          	vector<double> next_egopath_x;
-          	vector<double> next_egopath_y;
-          	ego.JMT(next_egopath_x, next_egopath_y, map_waypoints_s, map_waypoints_x, map_waypoints_y);
+          	ego.choose_next_state(predictions, map_waypoints_s, map_waypoints_x, map_waypoints_y);
 
           	// END
 
           	json msgJson;
-          	msgJson["next_x"] = next_egopath_x;
-          	msgJson["next_y"] = next_egopath_y;
+          	msgJson["next_x"] = ego.next_path_x;
+          	msgJson["next_y"] = ego.next_path_y;
 
           	auto msg = "42[\"control\","+ msgJson.dump()+"]";
 

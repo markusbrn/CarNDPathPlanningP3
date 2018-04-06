@@ -8,14 +8,19 @@
 #include "spline.h"
 //#include "cost.h"
 
-// For converting back and forth between radians and degrees.
-constexpr double pi() { return M_PI; }
-double deg2rad(double x) { return x * pi() / 180; }
-double rad2deg(double x) { return x * 180 / pi(); }
+#include "assist.h"
 
-double distance(double x1, double y1, double x2, double y2) {
-	return sqrt((x2-x1)*(x2-x1)+(y2-y1)*(y2-y1));
+double lanes_available = 3;
+
+double bound(double min, double max, double in) {
+	double out=in;
+
+	if(out<min) out=min;
+	else if(out>max) out=max;
+
+	return out;
 }
+
 
 /**
 * Initializes Vehicle
@@ -25,7 +30,145 @@ Vehicle::Vehicle() {}
 
 Vehicle::~Vehicle() {}
 
-void Vehicle::JMT(vector<double> &next_path_x, vector<double> &next_path_y, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y) {
+void Vehicle::choose_next_state(const vector<Vehicle> &predictions, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y) {
+	float cost = pow(10,7);
+	vector<string> s_states = this->successor_states();
+	for(vector<string>::iterator it=s_states.begin(); it!=s_states.end(); ++it)	{
+		this->generate_trajectory(*it, predictions, maps_s, maps_x, maps_y);
+		//TODO: compare trajectory costs
+	}
+}
+
+
+vector<string> Vehicle::successor_states() {
+	/*
+	Provides the possible next states given the current state for the FSM
+	discussed in the course, with the exception that lane changes happen
+	instantaneously, so LCL and LCR can only transition back to KL.
+	*/
+	vector<string> states;
+	states.push_back("KL");
+//	string state = this->state;
+//	if (state.compare("KL") == 0) {
+//		states.push_back("PLCL");
+//		states.push_back("PLCR");
+//	}
+//	else if (state.compare("PLCL") == 0) {
+//		if (lane != lanes_available - 1) {
+//			states.push_back("PLCL");
+//			states.push_back("LCL");
+//		}
+//	}
+//	else if (state.compare("PLCR") == 0) {
+//		if (lane != 0) {
+//			states.push_back("PLCR");
+//			states.push_back("LCR");
+//		}
+//	}
+	//If state is "LCL" or "LCR", then just return "KL"
+	return states;
+}
+
+
+void Vehicle::generate_trajectory(string state, const vector<Vehicle> &predictions, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y) {
+	/*
+	Given a possible next state, generate the appropriate trajectory to realize the next state.
+	*/
+	/*if (state.compare("CS") == 0) {
+		trajectory = constant_speed_trajectory();
+	}*/
+	if (state.compare("KL") == 0) {
+		keep_lane_trajectory(predictions, maps_s, maps_x, maps_y);
+	}
+	/*else if (state.compare("LCL") == 0 || state.compare("LCR") == 0) {
+		trajectory = lane_change_trajectory(state, predictions);
+	}
+	else if (state.compare("PLCL") == 0 || state.compare("PLCR") == 0) {
+		trajectory = prep_lane_change_trajectory(state, predictions);
+	}*/
+}
+
+
+void Vehicle::keep_lane_trajectory(const vector<Vehicle> &predictions, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y) {
+	/*
+	Generate a keep lane trajectory.
+	*/
+	bool too_close;
+	for(unsigned int i=0; i<predictions.size(); i++) {
+		if((predictions[i].d_act > 2+4*lane-2) && (predictions[i].d_act < 2+4*lane+2)) {
+			double check_car_s = predictions[i].s_act + previous_path_x.size()*0.02*predictions[i].speed_act;
+			if((check_car_s > end_path_s) && (check_car_s-end_path_s < 30)) {
+			 	too_close = true;
+			}
+		}
+	}
+	if(too_close) vel_cmd -= max_vel_inc;
+	else if(vel_cmd < vel_lim) vel_cmd += max_vel_inc;
+
+	this->JMT(maps_s, maps_x, maps_y);
+}
+
+
+void Vehicle::predict(const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y) {
+	//define containers for path planning polynomial
+	vector<double> ptsx;
+	vector<double> ptsy;
+
+	//generate waypoints in 30, 60 and 90 meters distance from last already planned car position
+	vector<double> next_wp0 = getXY(s_act+30, d_act, maps_s, maps_x, maps_y);
+	vector<double> next_wp1 = getXY(s_act+60, d_act, maps_s, maps_x, maps_y);
+	vector<double> next_wp2 = getXY(s_act+90, d_act, maps_s, maps_x, maps_y);
+
+	//add waypoints to ptsx,y containers
+	ptsx.push_back(x_act);
+	ptsx.push_back(next_wp0[0]);
+	ptsx.push_back(next_wp1[0]);
+	ptsx.push_back(next_wp2[0]);
+	ptsy.push_back(y_act);
+	ptsy.push_back(next_wp0[1]);
+	ptsy.push_back(next_wp1[1]);
+	ptsy.push_back(next_wp2[1]);
+
+	//transform ptsx,y from global to vehicle fixed KOS (makes spline interpolation easier)
+	for(unsigned int i=0; i<ptsx.size(); i++) {
+		double shift_x = ptsx[i] - x_act;
+		double shift_y = ptsy[i] - y_act;
+
+		ptsx[i] = shift_x * cos(-yaw_act) - shift_y * sin(-yaw_act);
+		ptsy[i] = shift_x * sin(-yaw_act) + shift_y * cos(-yaw_act);
+	}
+
+	//compute spline interpolation through ptsx,y
+	tk::spline s;
+	s.set_points(ptsx,ptsy);
+
+	vector< vector<double> > next_path_xy;
+
+	//define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
+
+	//push already planned path in next_xy_vals containers
+	next_path_x.clear();
+	next_path_y.clear();
+	double target_x = 30.; //set lookahead distance (in vehicle fixed KOS! x-direction) to 60m
+	double target_y = s(target_x); //compute y values with previously computed spline
+	double target_dist = sqrt(pow(target_x,2)+pow(target_y,2)); //compute actual distance
+
+	double x_point = 0;
+	double y_point = 0;
+
+	for(unsigned i=0; i<=50; i++) {
+		double N = (target_dist/(0.02*speed_act)); //compute number of position increments to cover target_dist when driving with current velocity
+		x_point += target_x/N; //increment x-position
+		y_point = s(x_point); //compute y-position with spline function
+
+		//derotate to global KOS and push on next_xy_vals containers
+		next_path_x.push_back(x_act + x_point*cos(yaw_act) - y_point*sin(yaw_act));
+		next_path_y.push_back(y_act + x_point*sin(yaw_act) + y_point*cos(yaw_act));
+	}
+}
+
+
+void Vehicle::JMT(const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y) {
 	//define containers for path planning polynomial
 	vector<double> ptsx;
 	vector<double> ptsy;
@@ -34,7 +177,7 @@ void Vehicle::JMT(vector<double> &next_path_x, vector<double> &next_path_y, cons
 	//previously planned path is used for the reference position
 	double ref_x = x_act;
 	double ref_y = y_act;
-	double ref_yaw = deg2rad(yaw_act);
+	double ref_yaw = yaw_act;
 	double prev_size = previous_path_x.size();
 	double ref_s = s_act;
 	if(prev_size > 0) ref_s = end_path_s;
@@ -94,9 +237,11 @@ void Vehicle::JMT(vector<double> &next_path_x, vector<double> &next_path_y, cons
 	//define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
 
 	//push already planned path in next_xy_vals containers
-	for(unsigned int i=0; i<this->previous_path_x.size();i++) {
-		next_path_x.push_back(this->previous_path_x[i]);
-		next_path_y.push_back(this->previous_path_y[i]);
+	next_path_x.clear();
+	next_path_y.clear();
+	for(unsigned int i=0; i<previous_path_x.size();i++) {
+		next_path_x.push_back(previous_path_x[i]);
+		next_path_y.push_back(previous_path_y[i]);
 	}
 
 	double target_x = 30.; //set lookahead distance (in vehicle fixed KOS! x-direction) to 30m
@@ -106,8 +251,8 @@ void Vehicle::JMT(vector<double> &next_path_x, vector<double> &next_path_y, cons
 	double x_point = 0;
 	double y_point = 0;
 
-	for(unsigned i=0; i<=50-this->previous_path_x.size(); i++) {
-		double N = (target_dist/(0.02*vel_cmd)); //compute position increment during 20ms time interval when driving with vel_cmd
+	for(unsigned i=0; i<=50-previous_path_x.size(); i++) {
+		double N = (target_dist/(0.02*vel_cmd)); //compute number of position increments to cover target_dist when driving with vel_cmd
 		x_point += target_x/N; //increment x-position
 		y_point = s(x_point); //compute y-position with spline function
 
@@ -116,6 +261,7 @@ void Vehicle::JMT(vector<double> &next_path_x, vector<double> &next_path_y, cons
 		next_path_y.push_back(ref_y + x_point*sin(ref_yaw) + y_point*cos(ref_yaw));
 	}
 }
+
 
 // Transform from Frenet s,d coordinates to Cartesian x,y
 vector<double> Vehicle::getXY(double s, double d, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y)
@@ -136,7 +282,7 @@ vector<double> Vehicle::getXY(double s, double d, const vector<double> &maps_s, 
 	double seg_x = maps_x[prev_wp]+seg_s*cos(heading);
 	double seg_y = maps_y[prev_wp]+seg_s*sin(heading);
 
-	double perp_heading = heading-pi()/2;
+	double perp_heading = heading-M_PI/2;
 
 	double x = seg_x + d*cos(perp_heading);
 	double y = seg_y + d*sin(perp_heading);
