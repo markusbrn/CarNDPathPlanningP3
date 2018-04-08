@@ -5,6 +5,9 @@
 #include <vector>
 #include <map>
 #include <string>
+#include "Eigen-3.3/Eigen/Core"
+#include "Eigen-3.3/Eigen/QR"
+#include "MPC.h"
 
 
 using namespace std;
@@ -36,6 +39,12 @@ public:
 	vector<double> next_path_x;
 	vector<double> next_path_y;
 
+	Eigen::VectorXd state_vector;
+	vector< vector<double> > mpc_vars;
+	MPC mpc;
+	vector<double> mpc_path_x;
+	vector<double> mpc_path_y;
+
 	/**
 	* Constructor
 	*/
@@ -58,6 +67,8 @@ public:
 	void keep_lane_trajectory(const vector<Vehicle> &predictions, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
 
 	void predict(const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
+
+	void MPC_plan(const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
 
 	void JMT(const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
 

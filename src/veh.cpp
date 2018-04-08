@@ -21,6 +21,30 @@ double bound(double min, double max, double in) {
 	return out;
 }
 
+// Fit a polynomial.
+// Adapted from
+// https://github.com/JuliaMath/Polynomials.jl/blob/master/src/Polynomials.jl#L676-L716
+Eigen::VectorXd polyfit(Eigen::VectorXd xvals, Eigen::VectorXd yvals,
+                        int order) {
+  assert(xvals.size() == yvals.size());
+  assert(order >= 1 && order <= xvals.size() - 1);
+  Eigen::MatrixXd A(xvals.size(), order + 1);
+
+  for (int i = 0; i < xvals.size(); i++) {
+    A(i, 0) = 1.0;
+  }
+
+  for (int j = 0; j < xvals.size(); j++) {
+    for (int i = 0; i < order; i++) {
+      A(j, i + 1) = A(j, i) * xvals(j);
+    }
+  }
+
+  auto Q = A.householderQr();
+  auto result = Q.solve(yvals);
+  return result;
+}
+
 
 /**
 * Initializes Vehicle
@@ -102,10 +126,14 @@ void Vehicle::keep_lane_trajectory(const vector<Vehicle> &predictions, const vec
 			}
 		}
 	}
-	if(too_close) vel_cmd -= max_vel_inc;
-	else if(vel_cmd < vel_lim) vel_cmd += max_vel_inc;
+	//if(too_close) vel_cmd -= max_vel_inc;
+	//else if(vel_cmd < vel_lim) vel_cmd += max_vel_inc;
 
-	this->JMT(maps_s, maps_x, maps_y);
+	//this->JMT(maps_s, maps_x, maps_y);
+	/*
+	* Calculate new trajectory using MPC.
+	*/
+	this->MPC_plan(maps_s, maps_x, maps_y);
 }
 
 
@@ -144,26 +172,118 @@ void Vehicle::predict(const vector<double> &maps_s, const vector<double> &maps_x
 
 	vector< vector<double> > next_path_xy;
 
-	//define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
-
-	//push already planned path in next_xy_vals containers
+	//define a path made up of (x,y) points that the car will visit sequentially every .02 seconds; look ahead for 1s
 	next_path_x.clear();
 	next_path_y.clear();
-	double target_x = 30.; //set lookahead distance (in vehicle fixed KOS! x-direction) to 60m
-	double target_y = s(target_x); //compute y values with previously computed spline
-	double target_dist = sqrt(pow(target_x,2)+pow(target_y,2)); //compute actual distance
+
+	double pos_inc = speed_act * 0.02;
+	if(pos_inc < 1.e-5) pos_inc = 1.e-5;
 
 	double x_point = 0;
 	double y_point = 0;
-
 	for(unsigned i=0; i<=50; i++) {
-		double N = (target_dist/(0.02*speed_act)); //compute number of position increments to cover target_dist when driving with current velocity
-		x_point += target_x/N; //increment x-position
+		x_point += pos_inc; //increment x-position
 		y_point = s(x_point); //compute y-position with spline function
 
 		//derotate to global KOS and push on next_xy_vals containers
 		next_path_x.push_back(x_act + x_point*cos(yaw_act) - y_point*sin(yaw_act));
 		next_path_y.push_back(y_act + x_point*sin(yaw_act) + y_point*cos(yaw_act));
+	}
+}
+
+
+void Vehicle::MPC_plan(const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y) {
+	double ref_x = 0.;
+	double ref_y = 0.;
+	double ref_s = 0;
+	double ref_yaw = 0.;
+	for(unsigned int i=0; i<previous_path_x.size(); i++) {
+			cout<<"previous_path_x: "<<previous_path_x[i]<<endl;
+	}
+	if(previous_path_x.empty() == false) {
+		for(unsigned int i=0; i<mpc_path_x.size(); i++) {
+			if(fabs(int(mpc_path_x[i]*100) - int(previous_path_x[previous_path_x.size()-1]*100))<2) {
+				cout << "i: " << i << endl;
+				this->state_vector << mpc_vars[0][i-1], mpc_vars[1][i-1], mpc_vars[2][i-1], mpc_vars[3][i-1], mpc_vars[4][i-1], mpc_vars[5][i-1];
+				cout << "x0: " << state_vector[0] << endl;
+				cout << "y0: " << state_vector[1] << endl;
+				cout << "psi0: " << state_vector[2] << endl;
+				cout << "v0: " << state_vector[3] << endl;
+				cout << "cte0: " << state_vector[4] << endl;
+				cout << "epsi0: " << state_vector[5] << endl;
+			}
+		}
+		ref_x = previous_path_x[previous_path_x.size()-1];
+		ref_y = previous_path_y[previous_path_y.size()-1];
+		ref_s = end_path_s;
+		ref_yaw = yaw_act + state_vector[2];
+		cout << "ref_yaw: " << ref_yaw << endl;
+	} else {
+		this->state_vector << 0., 0., 0., this->speed_act, 0., 0.;
+		ref_x = x_act;
+		ref_y = y_act;
+		ref_s = s_act;
+		ref_yaw = yaw_act;
+	}
+
+	//define containers for path planning polynomial
+	vector<double> ptsx;
+	vector<double> ptsy;
+
+	//generate waypoints in 30, 60 and 90 meters distance from last already planned car position
+	vector<double> next_wp0 = getXY(ref_s+30, 2+4*this->lane, maps_s, maps_x, maps_y);
+	vector<double> next_wp1 = getXY(ref_s+60, 2+4*this->lane, maps_s, maps_x, maps_y);
+	vector<double> next_wp2 = getXY(ref_s+90, 2+4*this->lane, maps_s, maps_x, maps_y);
+
+	//add waypoints to ptsx,y containers
+	ptsx.push_back(next_wp0[0]);
+	ptsx.push_back(next_wp1[0]);
+	ptsx.push_back(next_wp2[0]);
+	ptsy.push_back(next_wp0[1]);
+	ptsy.push_back(next_wp1[1]);
+	ptsy.push_back(next_wp2[1]);
+
+	//transform ptsx,y from global to vehicle fixed KOS (makes spline interpolation easier)
+	for(unsigned int i=0; i<ptsx.size(); i++) {
+		double shift_x = ptsx[i] - ref_x;
+		double shift_y = ptsy[i] - ref_y;
+
+		ptsx[i] =  shift_x * cos(ref_yaw) + shift_y * sin(ref_yaw);
+		ptsy[i] = -shift_x * sin(ref_yaw) + shift_y * cos(ref_yaw);
+	}
+
+	// fit polynomial through trajectory points
+	Eigen::VectorXd xvals = Eigen::VectorXd::Map(ptsx.data(),ptsx.size());
+	Eigen::VectorXd yvals = Eigen::VectorXd::Map(ptsy.data(),ptsy.size());
+	auto coeffs = polyfit(xvals,yvals,2);
+
+
+	mpc_vars = this->mpc.Solve(state_vector, coeffs);
+	vector<double> x = mpc_vars[0];
+	vector<double> y = mpc_vars[1];
+	vector<double> psi = mpc_vars[2];
+	vector<double> v = mpc_vars[3];
+	vector<double> cte = mpc_vars[4];
+	vector<double> epsi = mpc_vars[5];
+
+
+	next_path_x.clear();
+	next_path_y.clear();
+	mpc_path_x.clear();
+	mpc_path_y.clear();
+	for(unsigned int i=0; i<previous_path_x.size();i++) {
+		next_path_x.push_back(previous_path_x[i]);
+		next_path_y.push_back(previous_path_y[i]);
+	}
+	for(unsigned i=0; i<=15-previous_path_x.size(); i++) {
+		//derotate to global KOS and push on next_xy_vals containers
+		mpc_path_x.push_back(ref_x + mpc_vars[0][i]*cos(ref_yaw) - mpc_vars[1][i]*sin(ref_yaw));
+		mpc_path_y.push_back(ref_y + mpc_vars[0][i]*sin(ref_yaw) + mpc_vars[1][i]*cos(ref_yaw));
+		next_path_x.push_back(ref_x + mpc_vars[0][i]*cos(ref_yaw) - mpc_vars[1][i]*sin(ref_yaw));
+		next_path_y.push_back(ref_y + mpc_vars[0][i]*sin(ref_yaw) + mpc_vars[1][i]*cos(ref_yaw));
+	}
+	for(unsigned int i=0; i<next_path_x.size(); i++) {
+			cout<<"next_path_x: "<<next_path_x[i]<<endl;
 	}
 }
 

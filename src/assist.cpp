@@ -2,7 +2,12 @@
 
 #include "assist.h"
 
-double deg2rad(double x) { return x * M_PI / 180; }
+double deg2rad(double x) {
+	double out = x * M_PI / 180;
+	while(out >  M_PI) out -= 2*M_PI;
+	while(out < -M_PI) out += 2*M_PI;
+	return out;
+}
 
 double rad2deg(double x) { return x * 180 / M_PI; }
 

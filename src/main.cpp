@@ -5,6 +5,7 @@
 #include <iostream>
 #include <thread>
 #include <vector>
+#include <ctime>
 #include "Eigen-3.3/Eigen/Core"
 #include "Eigen-3.3/Eigen/QR"
 #include "json.hpp"
@@ -133,6 +134,9 @@ string hasData(string s) {
 int main() {
   uWS::Hub h;
 
+  static auto start_sim = std::chrono::steady_clock::now();
+  static auto start_timing = std::chrono::steady_clock::now();
+
   //define ego vehicle
   static Vehicle ego;
   ego.lane = 1;
@@ -140,6 +144,8 @@ int main() {
   ego.vel_lim = 49.5/2.24;
   ego.vel_cmd = 0;
   ego.state = "CS";
+  Eigen::VectorXd state_init(6);
+  ego.state_vector = state_init;
 
   // map values for waypoint's x,y,s and d normalized normal vectors
   vector<double> map_waypoints_x;
@@ -194,6 +200,13 @@ int main() {
         string event = j[0].get<string>();
         
         if (event == "telemetry") {
+        	auto act = std::chrono::steady_clock::now();
+        	auto dt = act - start_timing;
+        	double dt_sec = double((std::chrono::duration_cast<std::chrono::microseconds>(dt)).count())/CLOCKS_PER_SEC;
+        	//cout << "Time: " << dt_sec << endl;
+        	auto time = act - start_sim;
+        	double time_sec = double((std::chrono::duration_cast<std::chrono::microseconds>(time)).count())/CLOCKS_PER_SEC;
+        	start_timing = std::chrono::steady_clock::now();
           // j[1] is the data JSON object
           
         	// Main car's localization Data
@@ -202,7 +215,7 @@ int main() {
           	ego.s_act = j[1]["s"];
           	ego.d_act = j[1]["d"];
           	ego.yaw_act = deg2rad(double(j[1]["yaw"]));
-          	ego.speed_act = j[1]["speed"];
+          	ego.speed_act = double(j[1]["speed"]) / 2.24;
 
           	// Previous path data given to the Planner
           	auto previous_path_x = j[1]["previous_path_x"];
@@ -229,7 +242,7 @@ int main() {
           			car.yaw_act = ego.yaw_act;
           			double vx = sensor_fusion[i][3];
           			double vy = sensor_fusion[i][4];
-          			car.speed_act = sqrt(pow(vx,2)+pow(vy,2));
+          			car.speed_act = sqrt(pow(vx,2)+pow(vy,2)) / 2.24;
           			car.s_act = sensor_fusion[i][5];
           			car.d_act = sensor_fusion[i][6];
 
