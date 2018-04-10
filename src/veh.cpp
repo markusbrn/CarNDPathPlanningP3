@@ -21,6 +21,15 @@ double bound(double min, double max, double in) {
 	return out;
 }
 
+// Evaluate a polynomial.
+double polyeval(Eigen::VectorXd coeffs, double x) {
+  double result = 0.0;
+  for (int i = 0; i < coeffs.size(); i++) {
+    result += coeffs[i] * pow(x, i);
+  }
+  return result;
+}
+
 // Fit a polynomial.
 // Adapted from
 // https://github.com/JuliaMath/Polynomials.jl/blob/master/src/Polynomials.jl#L676-L716
@@ -196,30 +205,18 @@ void Vehicle::MPC_plan(const vector<double> &maps_s, const vector<double> &maps_
 	double ref_x = 0.;
 	double ref_y = 0.;
 	double ref_s = 0;
-	double ref_yaw = 0.;
-	for(unsigned int i=0; i<previous_path_x.size(); i++) {
-			cout<<"previous_path_x: "<<previous_path_x[i]<<endl;
-	}
-	if(previous_path_x.empty() == false) {
-		for(unsigned int i=0; i<mpc_path_x.size(); i++) {
-			if(fabs(int(mpc_path_x[i]*100) - int(previous_path_x[previous_path_x.size()-1]*100))<2) {
-				cout << "i: " << i << endl;
-				this->state_vector << mpc_vars[0][i-1], mpc_vars[1][i-1], mpc_vars[2][i-1], mpc_vars[3][i-1], mpc_vars[4][i-1], mpc_vars[5][i-1];
-				cout << "x0: " << state_vector[0] << endl;
-				cout << "y0: " << state_vector[1] << endl;
-				cout << "psi0: " << state_vector[2] << endl;
-				cout << "v0: " << state_vector[3] << endl;
-				cout << "cte0: " << state_vector[4] << endl;
-				cout << "epsi0: " << state_vector[5] << endl;
-			}
-		}
-		ref_x = previous_path_x[previous_path_x.size()-1];
-		ref_y = previous_path_y[previous_path_y.size()-1];
+	double ref_yaw = 0;
+	double ref_speed = 0;
+
+	double prev_size = previous_path_x.size();
+	if(prev_size > 1) {
+		ref_speed = v_mpc[v_mpc.size()-1];
+		ref_x = previous_path_x[prev_size-1];
+		ref_y = previous_path_y[prev_size-1];
+		ref_yaw = atan2(previous_path_y[prev_size-1]-previous_path_y[prev_size-2],previous_path_x[prev_size-1]-previous_path_x[prev_size-2]);
 		ref_s = end_path_s;
-		ref_yaw = yaw_act + state_vector[2];
-		cout << "ref_yaw: " << ref_yaw << endl;
 	} else {
-		this->state_vector << 0., 0., 0., this->speed_act, 0., 0.;
+		ref_speed = speed_act;
 		ref_x = x_act;
 		ref_y = y_act;
 		ref_s = s_act;
@@ -257,33 +254,34 @@ void Vehicle::MPC_plan(const vector<double> &maps_s, const vector<double> &maps_
 	Eigen::VectorXd yvals = Eigen::VectorXd::Map(ptsy.data(),ptsy.size());
 	auto coeffs = polyfit(xvals,yvals,2);
 
-
+	state_vector << 0., 0., 0., ref_speed, -polyeval(coeffs, 0.), - atan(coeffs[1]);
 	mpc_vars = this->mpc.Solve(state_vector, coeffs);
-	vector<double> x = mpc_vars[0];
-	vector<double> y = mpc_vars[1];
-	vector<double> psi = mpc_vars[2];
-	vector<double> v = mpc_vars[3];
-	vector<double> cte = mpc_vars[4];
-	vector<double> epsi = mpc_vars[5];
+	x_mpc.clear();
+	y_mpc.clear();
+	psi_mpc.clear();
+	v_mpc.clear();
+	cte_mpc.clear();
+	epsi_mpc.clear();
+	for(unsigned int i=0; i<mpc_vars[0].size(); i++) {
+		x_mpc.push_back(mpc_vars[0][i]);
+		y_mpc.push_back(mpc_vars[1][i]);
+		psi_mpc.push_back(mpc_vars[2][i]);
+		v_mpc.push_back(mpc_vars[3][i]);
+		cte_mpc.push_back(mpc_vars[4][i]);
+		epsi_mpc.push_back(mpc_vars[5][i]);
+	}
 
 
 	next_path_x.clear();
 	next_path_y.clear();
-	mpc_path_x.clear();
-	mpc_path_y.clear();
 	for(unsigned int i=0; i<previous_path_x.size();i++) {
 		next_path_x.push_back(previous_path_x[i]);
 		next_path_y.push_back(previous_path_y[i]);
 	}
-	for(unsigned i=0; i<=15-previous_path_x.size(); i++) {
+	for(unsigned i=0; i<=20-previous_path_x.size(); i++) {
 		//derotate to global KOS and push on next_xy_vals containers
-		mpc_path_x.push_back(ref_x + mpc_vars[0][i]*cos(ref_yaw) - mpc_vars[1][i]*sin(ref_yaw));
-		mpc_path_y.push_back(ref_y + mpc_vars[0][i]*sin(ref_yaw) + mpc_vars[1][i]*cos(ref_yaw));
-		next_path_x.push_back(ref_x + mpc_vars[0][i]*cos(ref_yaw) - mpc_vars[1][i]*sin(ref_yaw));
-		next_path_y.push_back(ref_y + mpc_vars[0][i]*sin(ref_yaw) + mpc_vars[1][i]*cos(ref_yaw));
-	}
-	for(unsigned int i=0; i<next_path_x.size(); i++) {
-			cout<<"next_path_x: "<<next_path_x[i]<<endl;
+		next_path_x.push_back(ref_x + x_mpc[i]*cos(ref_yaw) - y_mpc[i]*sin(ref_yaw));
+		next_path_y.push_back(ref_y + x_mpc[i]*sin(ref_yaw) + y_mpc[i]*cos(ref_yaw));
 	}
 }
 
@@ -327,17 +325,20 @@ void Vehicle::JMT(const vector<double> &maps_s, const vector<double> &maps_x, co
 	}
 
 	//generate waypoints in 30, 60 and 90 meters distance from last already planned car position
-	vector<double> next_wp0 = getXY(ref_s+30, 2+4*this->lane, maps_s, maps_x, maps_y);
-	vector<double> next_wp1 = getXY(ref_s+60, 2+4*this->lane, maps_s, maps_x, maps_y);
-	vector<double> next_wp2 = getXY(ref_s+90, 2+4*this->lane, maps_s, maps_x, maps_y);
+	vector<double> next_wp0 = getXY(ref_s   , 2+4*this->lane, maps_s, maps_x, maps_y);
+	vector<double> next_wp1 = getXY(ref_s+30, 2+4*this->lane, maps_s, maps_x, maps_y);
+	vector<double> next_wp2 = getXY(ref_s+60, 2+4*this->lane, maps_s, maps_x, maps_y);
+	vector<double> next_wp3 = getXY(ref_s+90, 2+4*this->lane, maps_s, maps_x, maps_y);
 
 	//add waypoints to ptsx,y containers
 	ptsx.push_back(next_wp0[0]);
 	ptsx.push_back(next_wp1[0]);
 	ptsx.push_back(next_wp2[0]);
+	ptsx.push_back(next_wp3[0]);
 	ptsy.push_back(next_wp0[1]);
 	ptsy.push_back(next_wp1[1]);
 	ptsy.push_back(next_wp2[1]);
+	ptsy.push_back(next_wp3[1]);
 
 	//transform ptsx,y from global to vehicle fixed KOS (makes spline interpolation easier)
 	for(unsigned int i=0; i<ptsx.size(); i++) {
@@ -384,7 +385,7 @@ void Vehicle::JMT(const vector<double> &maps_s, const vector<double> &maps_x, co
 
 
 // Transform from Frenet s,d coordinates to Cartesian x,y
-vector<double> Vehicle::getXY(double s, double d, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y)
+vector<double> getXY(double s, double d, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y)
 {
 	int prev_wp = -1;
 
@@ -408,5 +409,105 @@ vector<double> Vehicle::getXY(double s, double d, const vector<double> &maps_s, 
 	double y = seg_y + d*sin(perp_heading);
 
 	return {x,y};
+
+}
+
+
+int ClosestWaypoint(double x, double y, const vector<double> &maps_x, const vector<double> &maps_y)
+{
+
+	double closestLen = 100000; //large number
+	int closestWaypoint = 0;
+
+	for(int i = 0; i < maps_x.size(); i++)
+	{
+		double map_x = maps_x[i];
+		double map_y = maps_y[i];
+		double dist = distance(x,y,map_x,map_y);
+		if(dist < closestLen)
+		{
+			closestLen = dist;
+			closestWaypoint = i;
+		}
+
+	}
+
+	return closestWaypoint;
+
+}
+
+
+int NextWaypoint(double x, double y, double theta, const vector<double> &maps_x, const vector<double> &maps_y)
+{
+
+	int closestWaypoint = ClosestWaypoint(x,y,maps_x,maps_y);
+
+	double map_x = maps_x[closestWaypoint];
+	double map_y = maps_y[closestWaypoint];
+
+	double heading = atan2((map_y-y),(map_x-x));
+
+	double angle = fabs(theta-heading);
+  angle = min(2*M_PI - angle, angle);
+
+  if(angle > M_PI/4)
+  {
+    closestWaypoint++;
+  if (closestWaypoint == maps_x.size())
+  {
+    closestWaypoint = 0;
+  }
+  }
+
+  return closestWaypoint;
+}
+
+
+// Transform from Cartesian x,y coordinates to Frenet s,d coordinates
+vector<double> getFrenet(double x, double y, double theta, const vector<double> &maps_x, const vector<double> &maps_y)
+{
+	int next_wp = NextWaypoint(x,y, theta, maps_x,maps_y);
+
+	int prev_wp;
+	prev_wp = next_wp-1;
+	if(next_wp == 0)
+	{
+		prev_wp  = maps_x.size()-1;
+	}
+
+	double n_x = maps_x[next_wp]-maps_x[prev_wp];
+	double n_y = maps_y[next_wp]-maps_y[prev_wp];
+	double x_x = x - maps_x[prev_wp];
+	double x_y = y - maps_y[prev_wp];
+
+	// find the projection of x onto n
+	double proj_norm = (x_x*n_x+x_y*n_y)/(n_x*n_x+n_y*n_y);
+	double proj_x = proj_norm*n_x;
+	double proj_y = proj_norm*n_y;
+
+	double frenet_d = distance(x_x,x_y,proj_x,proj_y);
+
+	//see if d value is positive or negative by comparing it to a center point
+
+	double center_x = 1000-maps_x[prev_wp];
+	double center_y = 2000-maps_y[prev_wp];
+	double centerToPos = distance(center_x,center_y,x_x,x_y);
+	double centerToRef = distance(center_x,center_y,proj_x,proj_y);
+
+	if(centerToPos <= centerToRef)
+	{
+		frenet_d *= -1;
+	}
+
+	// calculate s value
+	double frenet_s = 0;
+	for(int i = 0; i < prev_wp; i++)
+	{
+		frenet_s += distance(maps_x[i],maps_y[i],maps_x[i+1],maps_y[i+1]);
+	}
+
+	frenet_s += distance(0,0,proj_x,proj_y);
+
+	return {frenet_s,frenet_d};
 
 }

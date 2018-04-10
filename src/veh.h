@@ -12,6 +12,20 @@
 
 using namespace std;
 
+double bound(double min, double max, double in);
+
+double polyeval(Eigen::VectorXd coeffs, double x);
+
+Eigen::VectorXd polyfit(Eigen::VectorXd xvals, Eigen::VectorXd yvals, int order);
+
+vector<double> getXY(double s, double d, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
+
+int ClosestWaypoint(double x, double y, const vector<double> &maps_x, const vector<double> &maps_y);
+
+int NextWaypoint(double x, double y, double theta, const vector<double> &maps_x, const vector<double> &maps_y);
+
+vector<double> getFrenet(double x, double y, double theta, const vector<double> &maps_x, const vector<double> &maps_y);
+
 class Vehicle {
 public:
 
@@ -40,10 +54,15 @@ public:
 	vector<double> next_path_y;
 
 	Eigen::VectorXd state_vector;
-	vector< vector<double> > mpc_vars;
 	MPC mpc;
-	vector<double> mpc_path_x;
-	vector<double> mpc_path_y;
+	vector< vector<double> > mpc_vars;
+	vector<double> x_mpc;
+	vector<double> y_mpc;
+	vector<double> psi_mpc;
+	vector<double> v_mpc;
+	vector<double> cte_mpc;
+	vector<double> epsi_mpc;
+
 
 	/**
 	* Constructor
@@ -71,9 +90,6 @@ public:
 	void MPC_plan(const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
 
 	void JMT(const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
-
-	vector<double> getXY(double s, double d, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
-
 };
 
 
