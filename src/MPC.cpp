@@ -169,8 +169,8 @@ vector<vector<double>> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs)
   // (from tutorial website:)
   // Acceleration/decceleration upper and lower limits.
   for (unsigned int i = a_start; i < n_vars; i++) {
-      vars_lowerbound[i] = -1;
-      vars_upperbound[i] = 1;
+      vars_lowerbound[i] = -7;
+      vars_upperbound[i] = 7;
   }
 
   // (from tutorial website:)

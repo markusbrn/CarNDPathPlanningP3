@@ -258,28 +258,22 @@ void Vehicle::MPC_plan(const vector<double> &maps_s, const vector<double> &maps_
 	mpc_vars = this->mpc.Solve(state_vector, coeffs);
 	x_mpc.clear();
 	y_mpc.clear();
-	psi_mpc.clear();
-	v_mpc.clear();
-	cte_mpc.clear();
-	epsi_mpc.clear();
 	for(unsigned int i=0; i<mpc_vars[0].size(); i++) {
 		x_mpc.push_back(mpc_vars[0][i]);
 		y_mpc.push_back(mpc_vars[1][i]);
-		psi_mpc.push_back(mpc_vars[2][i]);
-		v_mpc.push_back(mpc_vars[3][i]);
-		cte_mpc.push_back(mpc_vars[4][i]);
-		epsi_mpc.push_back(mpc_vars[5][i]);
 	}
 
 
 	next_path_x.clear();
 	next_path_y.clear();
+	v_mpc.clear();
 	for(unsigned int i=0; i<previous_path_x.size();i++) {
 		next_path_x.push_back(previous_path_x[i]);
 		next_path_y.push_back(previous_path_y[i]);
 	}
 	for(unsigned i=0; i<=20-previous_path_x.size(); i++) {
 		//derotate to global KOS and push on next_xy_vals containers
+		v_mpc.push_back(mpc_vars[3][i]);
 		next_path_x.push_back(ref_x + x_mpc[i]*cos(ref_yaw) - y_mpc[i]*sin(ref_yaw));
 		next_path_y.push_back(ref_y + x_mpc[i]*sin(ref_yaw) + y_mpc[i]*cos(ref_yaw));
 	}

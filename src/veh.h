@@ -58,11 +58,7 @@ public:
 	vector< vector<double> > mpc_vars;
 	vector<double> x_mpc;
 	vector<double> y_mpc;
-	vector<double> psi_mpc;
 	vector<double> v_mpc;
-	vector<double> cte_mpc;
-	vector<double> epsi_mpc;
-
 
 	/**
 	* Constructor
