@@ -83,7 +83,7 @@ public:
 
 	void predict(const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
 
-	void MPC_plan(const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
+	void MPC_plan(const vector<Vehicle> &predictions, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
 
 	void JMT(const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
 };

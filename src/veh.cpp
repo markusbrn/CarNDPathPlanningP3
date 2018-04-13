@@ -142,7 +142,7 @@ void Vehicle::keep_lane_trajectory(const vector<Vehicle> &predictions, const vec
 	/*
 	* Calculate new trajectory using MPC.
 	*/
-	this->MPC_plan(maps_s, maps_x, maps_y);
+	this->MPC_plan(predictions, maps_s, maps_x, maps_y);
 }
 
 
@@ -190,7 +190,7 @@ void Vehicle::predict(const vector<double> &maps_s, const vector<double> &maps_x
 
 	double x_point = 0;
 	double y_point = 0;
-	for(unsigned i=0; i<=50; i++) {
+	for(unsigned i=0; i<=80; i++) {
 		x_point += pos_inc; //increment x-position
 		y_point = s(x_point); //compute y-position with spline function
 
@@ -201,7 +201,7 @@ void Vehicle::predict(const vector<double> &maps_s, const vector<double> &maps_x
 }
 
 
-void Vehicle::MPC_plan(const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y) {
+void Vehicle::MPC_plan(const vector<Vehicle> &predictions, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y) {
 	double ref_x = 0.;
 	double ref_y = 0.;
 	double ref_s = 0;
@@ -255,7 +255,25 @@ void Vehicle::MPC_plan(const vector<double> &maps_s, const vector<double> &maps_
 	auto coeffs = polyfit(xvals,yvals,2);
 
 	state_vector << 0., 0., 0., ref_speed, -polyeval(coeffs, 0.), - atan(coeffs[1]);
-	mpc_vars = this->mpc.Solve(state_vector, coeffs);
+	vector<vector<double>> predictions_x;
+	vector<vector<double>> predictions_y;
+	for(unsigned int i=0; i<predictions.size(); i++) {
+		if( (fabs(predictions[i].d_act - (2+4*lane)) < 2) && (predictions[i].s_act-s_act)>0 ) {
+			vector<double> prediction_x;
+			vector<double> prediction_y;
+			for(unsigned int j=prev_size-1; j<predictions[i].next_path_x.size(); j++) {
+				double shift_x = predictions[i].next_path_x[j] - ref_x;
+				double shift_y = predictions[i].next_path_y[j] - ref_y;
+
+				prediction_x.push_back( shift_x * cos(ref_yaw) + shift_y * sin(ref_yaw));
+				prediction_y.push_back(-shift_x * sin(ref_yaw) + shift_y * cos(ref_yaw));
+			}
+			predictions_x.push_back(prediction_x);
+			predictions_y.push_back(prediction_y);
+		}
+	}
+	cout << predictions_x.size() << endl;
+	mpc_vars = this->mpc.Solve(state_vector, coeffs, predictions_x, predictions_y, "KL");
 	x_mpc.clear();
 	y_mpc.clear();
 	for(unsigned int i=0; i<mpc_vars[0].size(); i++) {

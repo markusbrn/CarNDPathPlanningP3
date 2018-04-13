@@ -118,7 +118,7 @@ class FG_eval {
 MPC::MPC() {}
 MPC::~MPC() {}
 
-vector<vector<double>> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
+vector<vector<double>> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs, vector<vector<double>> predictions_x,  vector<vector<double>> predictions_y, string driving_state) {
   bool ok = true;
   typedef CPPAD_TESTVECTOR(double) Dvector;
 
@@ -147,13 +147,44 @@ vector<vector<double>> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs)
   vars[cte_start] = cte;
   vars[epsi_start] = epsi;
 
+  vector<double> nearest_x_traj;
+  if(driving_state == "KL") {
+	  double nearest_dist = 1000;
+	  double nearest_index = 0;
+	  for(unsigned int i=0; i<predictions_x.size(); i++) {
+		  if(predictions_x[i][0] < nearest_dist) {
+			  nearest_dist = predictions_x[i][0];
+			  nearest_index = i;
+		  }
+	  }
+	  if(nearest_dist < 1000) {
+		  for(unsigned int i=0; i<predictions_x[nearest_index].size(); i++) {
+			  nearest_x_traj.push_back(predictions_x[nearest_index][i]-4.);
+		  }
+	  }
+  }
+
   Dvector vars_lowerbound(n_vars);
   Dvector vars_upperbound(n_vars);
   // (from tutorial website):
   // Set lower and upper limits for variables.
   // Set all non-actuators upper and lowerlimits
   // to the max negative and positive values.
-  for (unsigned int i = 0; i < delta_start; i++) {
+  for(unsigned int i = 0; i < y_start; i++) {
+	  vars_lowerbound[i] = 0.;
+	  if(nearest_x_traj.empty() == false) {
+		  vars_upperbound[i] = nearest_x_traj[i];
+	  } else {
+		  vars_upperbound[i] = 1.0e19;
+	  }
+  }
+
+  for(unsigned int i = y_start; i < psi_start; i++) {
+	  vars_lowerbound[i] = -3.;
+	  vars_upperbound[i] =  3.;
+  }
+
+  for (unsigned int i = psi_start; i < delta_start; i++) {
       vars_lowerbound[i] = -1.0e19;
       vars_upperbound[i] = 1.0e19;
   }
