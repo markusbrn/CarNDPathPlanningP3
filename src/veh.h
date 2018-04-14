@@ -7,6 +7,7 @@
 #include <string>
 #include "Eigen-3.3/Eigen/Core"
 #include "Eigen-3.3/Eigen/QR"
+#include "Eigen-3.3/Eigen/Dense"
 #include "MPC.h"
 
 
@@ -30,9 +31,10 @@ class Vehicle {
 public:
 
 	double lane;
-	double max_vel_inc;
-	double vel_lim;
+	double lane_cmd;
 	double vel_cmd;
+	double vel_max;
+	double vel_inc;
 
 	//car state in xy and frenet coordinates
 	string state;
@@ -52,6 +54,8 @@ public:
 	// Next path data for the Planner
 	vector<double> next_path_x;
 	vector<double> next_path_y;
+	vector<double> cand_path_x;
+	vector<double> cand_path_y;
 
 	Eigen::VectorXd state_vector;
 	MPC mpc;
@@ -59,6 +63,7 @@ public:
 	vector<double> x_mpc;
 	vector<double> y_mpc;
 	vector<double> v_mpc;
+	vector<double> cand_v_mpc;
 
 	/**
 	* Constructor
@@ -86,6 +91,8 @@ public:
 	void MPC_plan(const vector<Vehicle> &predictions, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
 
 	void JMT(const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
+
+	void JMTQ(const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
 };
 
 

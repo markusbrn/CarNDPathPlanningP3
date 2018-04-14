@@ -42,10 +42,11 @@ int main() {
   //define ego vehicle
   static Vehicle ego;
   ego.lane = 1;
-  ego.max_vel_inc = .1;
-  ego.vel_lim = 49.5/2.24;
-  ego.vel_cmd = 0;
-  ego.state = "CS";
+  ego.lane_cmd = 1;
+  ego.state = "KL";
+  ego.vel_cmd = 0.;
+  ego.vel_max = 49.5*0.44704;
+  ego.vel_inc = 0.2*5*0.44704;
   Eigen::VectorXd state_init(6);
   ego.state_vector = state_init;
 
@@ -118,6 +119,10 @@ int main() {
           	ego.d_act = j[1]["d"];
           	ego.yaw_act = deg2rad(double(j[1]["yaw"]));
           	ego.speed_act = double(j[1]["speed"]) / 2.24;
+          	if(ego.d_act < 4) ego.lane = 0;
+          	else if(4 <= ego.d_act < 8) ego.lane = 1;
+          	else ego.lane = 2;
+          	cout << ego.lane << endl;
 
           	// Previous path data given to the Planner
           	auto previous_path_x = j[1]["previous_path_x"];
@@ -147,6 +152,10 @@ int main() {
           			car.speed_act = sqrt(pow(vx,2)+pow(vy,2)) / 2.24;
           			car.s_act = sensor_fusion[i][5];
           			car.d_act = sensor_fusion[i][6];
+
+          			if(car.d_act < 4) car.lane = 0;
+          			else if(4 <= car.d_act < 8) car.lane = 1;
+          			else car.lane = 2;
 
           			//generate location predictions for current vehicle
           			car.predict(map_waypoints_s, map_waypoints_x, map_waypoints_y);

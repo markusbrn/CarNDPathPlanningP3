@@ -67,9 +67,11 @@ void Vehicle::choose_next_state(const vector<Vehicle> &predictions, const vector
 	float cost = pow(10,7);
 	vector<string> s_states = this->successor_states();
 	for(vector<string>::iterator it=s_states.begin(); it!=s_states.end(); ++it)	{
+		//this->MPC_plan(predictions, maps_s, maps_x, maps_y);
 		this->generate_trajectory(*it, predictions, maps_s, maps_x, maps_y);
 		//TODO: compare trajectory costs
 	}
+	//this->MPC_plan(predictions, maps_s, maps_x, maps_y);
 }
 
 
@@ -81,23 +83,11 @@ vector<string> Vehicle::successor_states() {
 	*/
 	vector<string> states;
 	states.push_back("KL");
-//	string state = this->state;
-//	if (state.compare("KL") == 0) {
-//		states.push_back("PLCL");
-//		states.push_back("PLCR");
-//	}
-//	else if (state.compare("PLCL") == 0) {
-//		if (lane != lanes_available - 1) {
-//			states.push_back("PLCL");
-//			states.push_back("LCL");
-//		}
-//	}
-//	else if (state.compare("PLCR") == 0) {
-//		if (lane != 0) {
-//			states.push_back("PLCR");
-//			states.push_back("LCR");
-//		}
-//	}
+	//string state = this->state;
+	if (state.compare("KL") == 0) {
+		if(lane != 0) states.push_back("LCL");
+		if(lane != 2) states.push_back("LCR");
+	}
 	//If state is "LCL" or "LCR", then just return "KL"
 	return states;
 }
@@ -107,42 +97,21 @@ void Vehicle::generate_trajectory(string state, const vector<Vehicle> &predictio
 	/*
 	Given a possible next state, generate the appropriate trajectory to realize the next state.
 	*/
-	/*if (state.compare("CS") == 0) {
-		trajectory = constant_speed_trajectory();
-	}*/
 	if (state.compare("KL") == 0) {
-		keep_lane_trajectory(predictions, maps_s, maps_x, maps_y);
+		this->state = state;
+		lane_cmd = lane;
+		this->MPC_plan(predictions, maps_s, maps_x, maps_y);
 	}
-	/*else if (state.compare("LCL") == 0 || state.compare("LCR") == 0) {
-		trajectory = lane_change_trajectory(state, predictions);
+	else if (state.compare("LCL") == 0) {
+		this->state = state;
+		lane_cmd = lane-1;
+	//	this->MPC_plan(predictions, maps_s, maps_x, maps_y);
 	}
-	else if (state.compare("PLCL") == 0 || state.compare("PLCR") == 0) {
-		trajectory = prep_lane_change_trajectory(state, predictions);
-	}*/
-}
-
-
-void Vehicle::keep_lane_trajectory(const vector<Vehicle> &predictions, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y) {
-	/*
-	Generate a keep lane trajectory.
-	*/
-	bool too_close;
-	for(unsigned int i=0; i<predictions.size(); i++) {
-		if((predictions[i].d_act > 2+4*lane-2) && (predictions[i].d_act < 2+4*lane+2)) {
-			double check_car_s = predictions[i].s_act + previous_path_x.size()*0.02*predictions[i].speed_act;
-			if((check_car_s > end_path_s) && (check_car_s-end_path_s < 30)) {
-			 	too_close = true;
-			}
-		}
+	else if (state.compare("LCR") == 0) {
+		this->state = state;
+		lane_cmd = lane+1;
+	//	this->MPC_plan(predictions, maps_s, maps_x, maps_y);
 	}
-	//if(too_close) vel_cmd -= max_vel_inc;
-	//else if(vel_cmd < vel_lim) vel_cmd += max_vel_inc;
-
-	//this->JMT(maps_s, maps_x, maps_y);
-	/*
-	* Calculate new trajectory using MPC.
-	*/
-	this->MPC_plan(predictions, maps_s, maps_x, maps_y);
 }
 
 
@@ -228,9 +197,9 @@ void Vehicle::MPC_plan(const vector<Vehicle> &predictions, const vector<double> 
 	vector<double> ptsy;
 
 	//generate waypoints in 30, 60 and 90 meters distance from last already planned car position
-	vector<double> next_wp0 = getXY(ref_s+30, 2+4*this->lane, maps_s, maps_x, maps_y);
-	vector<double> next_wp1 = getXY(ref_s+60, 2+4*this->lane, maps_s, maps_x, maps_y);
-	vector<double> next_wp2 = getXY(ref_s+90, 2+4*this->lane, maps_s, maps_x, maps_y);
+	vector<double> next_wp0 = getXY(ref_s+30, 2+4*this->lane_cmd, maps_s, maps_x, maps_y);
+	vector<double> next_wp1 = getXY(ref_s+60, 2+4*this->lane_cmd, maps_s, maps_x, maps_y);
+	vector<double> next_wp2 = getXY(ref_s+90, 2+4*this->lane_cmd, maps_s, maps_x, maps_y);
 
 	//add waypoints to ptsx,y containers
 	ptsx.push_back(next_wp0[0]);
@@ -254,46 +223,69 @@ void Vehicle::MPC_plan(const vector<Vehicle> &predictions, const vector<double> 
 	Eigen::VectorXd yvals = Eigen::VectorXd::Map(ptsy.data(),ptsy.size());
 	auto coeffs = polyfit(xvals,yvals,2);
 
-	state_vector << 0., 0., 0., ref_speed, -polyeval(coeffs, 0.), - atan(coeffs[1]);
-	vector<vector<double>> predictions_x;
-	vector<vector<double>> predictions_y;
-	for(unsigned int i=0; i<predictions.size(); i++) {
-		if( (fabs(predictions[i].d_act - (2+4*lane)) < 2) && (predictions[i].s_act-s_act)>0 ) {
-			vector<double> prediction_x;
-			vector<double> prediction_y;
-			for(unsigned int j=prev_size-1; j<predictions[i].next_path_x.size(); j++) {
-				double shift_x = predictions[i].next_path_x[j] - ref_x;
-				double shift_y = predictions[i].next_path_y[j] - ref_y;
-
-				prediction_x.push_back( shift_x * cos(ref_yaw) + shift_y * sin(ref_yaw));
-				prediction_y.push_back(-shift_x * sin(ref_yaw) + shift_y * cos(ref_yaw));
+	vector< vector <vector <double> > > return_traj_no_xyv;
+	if(state == "KL") {
+		vector< vector<double> > next_xyv;
+		vector< vector<double> > closest_prediction;
+		double min_dist = 1000;
+		double min_index = 0;
+		for(unsigned int i=0; i<predictions.size(); i++) {
+			if( (fabs(predictions[i].d_act - (2+4*lane)) < 2) && (predictions[i].s_act-s_act)>0 ) {
+				if(predictions[i].s_act-s_act < min_dist) {
+					min_dist = predictions[i].s_act-s_act;
+					min_index = i;
+				}
 			}
-			predictions_x.push_back(prediction_x);
-			predictions_y.push_back(prediction_y);
 		}
-	}
-	cout << predictions_x.size() << endl;
-	mpc_vars = this->mpc.Solve(state_vector, coeffs, predictions_x, predictions_y, "KL");
-	x_mpc.clear();
-	y_mpc.clear();
-	for(unsigned int i=0; i<mpc_vars[0].size(); i++) {
-		x_mpc.push_back(mpc_vars[0][i]);
-		y_mpc.push_back(mpc_vars[1][i]);
-	}
+		if(min_dist < 1000) {
+			vector<double> closest_prediction_x;
+			vector<double> closest_prediction_y;
+			for(unsigned int j=prev_size-1; j<predictions[min_index].next_path_x.size(); j++) {
+							double shift_x = predictions[min_index].next_path_x[j] - ref_x;
+							double shift_y = predictions[min_index].next_path_y[j] - ref_y;
 
+							closest_prediction_x.push_back( shift_x * cos(ref_yaw) + shift_y * sin(ref_yaw));
+							closest_prediction_y.push_back(-shift_x * sin(ref_yaw) + shift_y * cos(ref_yaw));
+			}
+			closest_prediction.push_back(closest_prediction_x);
+			closest_prediction.push_back(closest_prediction_y);
+		}
 
-	next_path_x.clear();
-	next_path_y.clear();
-	v_mpc.clear();
-	for(unsigned int i=0; i<previous_path_x.size();i++) {
-		next_path_x.push_back(previous_path_x[i]);
-		next_path_y.push_back(previous_path_y[i]);
-	}
-	for(unsigned i=0; i<=20-previous_path_x.size(); i++) {
-		//derotate to global KOS and push on next_xy_vals containers
-		v_mpc.push_back(mpc_vars[3][i]);
-		next_path_x.push_back(ref_x + x_mpc[i]*cos(ref_yaw) - y_mpc[i]*sin(ref_yaw));
-		next_path_y.push_back(ref_y + x_mpc[i]*sin(ref_yaw) + y_mpc[i]*cos(ref_yaw));
+		Eigen::VectorXd state_vector_KL(6);
+		state_vector_KL << 0., 0., 0., ref_speed, -polyeval(coeffs, 0.), - atan(coeffs[1]);
+		MPC mpc_KL;
+		vector< vector<double> > mpc_vars_KL = this->mpc.Solve(state_vector_KL, coeffs, closest_prediction, "KL", 0.236332);
+		vector<double> x_mpc_KL;
+		vector<double> y_mpc_KL;
+		for(unsigned int i=0; i<mpc_vars_KL[1].size(); i++) {
+			x_mpc_KL.push_back(mpc_vars_KL[1][i]);
+			y_mpc_KL.push_back(mpc_vars_KL[2][i]);
+		}
+
+		//vector<double> next_path_x_KL;
+		//vector<double> next_path_y_KL;
+		//vector<double> v_mpc_KL;
+		next_path_x.clear();
+		next_path_y.clear();
+		v_mpc.clear();
+		for(unsigned int i=0; i<previous_path_x.size();i++) {
+			next_path_x.push_back(previous_path_x[i]);
+			next_path_y.push_back(previous_path_y[i]);
+		}
+		for(unsigned i=0; i<=60-previous_path_x.size(); i++) {
+			//derotate to global KOS and push on next_xy_vals containers
+			v_mpc.push_back(mpc_vars_KL[4][i]);
+			next_path_x.push_back(ref_x + x_mpc_KL[i]*cos(ref_yaw) - y_mpc_KL[i]*sin(ref_yaw));
+			next_path_y.push_back(ref_y + x_mpc_KL[i]*sin(ref_yaw) + y_mpc_KL[i]*cos(ref_yaw));
+		}
+		/*next_path_x.clear();
+		next_path_y.clear();
+		v_mpc.clear();
+		for(unsigned int i=0; i<cand_path_x.size(); i++) {
+			next_path_x.push_back(cand_path_x[i]);
+			next_path_y.push_back(cand_path_y[i]);
+			v_mpc.push_back(cand_v_mpc[i]);
+		}*/
 	}
 }
 
@@ -337,20 +329,17 @@ void Vehicle::JMT(const vector<double> &maps_s, const vector<double> &maps_x, co
 	}
 
 	//generate waypoints in 30, 60 and 90 meters distance from last already planned car position
-	vector<double> next_wp0 = getXY(ref_s   , 2+4*this->lane, maps_s, maps_x, maps_y);
-	vector<double> next_wp1 = getXY(ref_s+30, 2+4*this->lane, maps_s, maps_x, maps_y);
-	vector<double> next_wp2 = getXY(ref_s+60, 2+4*this->lane, maps_s, maps_x, maps_y);
-	vector<double> next_wp3 = getXY(ref_s+90, 2+4*this->lane, maps_s, maps_x, maps_y);
+	vector<double> next_wp0 = getXY(ref_s+30, 2+4*this->lane, maps_s, maps_x, maps_y);
+	vector<double> next_wp1 = getXY(ref_s+60, 2+4*this->lane, maps_s, maps_x, maps_y);
+	vector<double> next_wp2 = getXY(ref_s+90, 2+4*this->lane, maps_s, maps_x, maps_y);
 
 	//add waypoints to ptsx,y containers
 	ptsx.push_back(next_wp0[0]);
 	ptsx.push_back(next_wp1[0]);
 	ptsx.push_back(next_wp2[0]);
-	ptsx.push_back(next_wp3[0]);
 	ptsy.push_back(next_wp0[1]);
 	ptsy.push_back(next_wp1[1]);
 	ptsy.push_back(next_wp2[1]);
-	ptsy.push_back(next_wp3[1]);
 
 	//transform ptsx,y from global to vehicle fixed KOS (makes spline interpolation easier)
 	for(unsigned int i=0; i<ptsx.size(); i++) {
