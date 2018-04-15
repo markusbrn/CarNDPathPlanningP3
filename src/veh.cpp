@@ -12,15 +12,6 @@
 
 double lanes_available = 3;
 
-double bound(double min, double max, double in) {
-	double out=in;
-
-	if(out<min) out=min;
-	else if(out>max) out=max;
-
-	return out;
-}
-
 // Evaluate a polynomial.
 double polyeval(Eigen::VectorXd coeffs, double x) {
   double result = 0.0;
@@ -63,54 +54,98 @@ Vehicle::Vehicle() {}
 
 Vehicle::~Vehicle() {}
 
+bool Vehicle::check_collision(const vector<Vehicle> &predictions, const vector<double> lanes, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y) {
+	bool collision = false;
+	//check for all vehicles in specific lanes
+	for(unsigned int i=0; i<predictions.size(); i++) {
+		for(unsigned int j=0; j<lanes.size(); j++) {
+			if((predictions[i].lane == lanes[j]) && (0 < fabs(predictions[i].s_act-s_act) < 50)) {
+				for(unsigned int k=0; k<cand_path_x.size(); k++) {
+					double pos_cand = sqrt(pow(cand_path_x[k],2) + pow(cand_path_y[k],2));
+					double pos_pred = sqrt(pow(predictions[i].next_path_x[k],2) + pow(predictions[i].next_path_y[k],2));
+					if(fabs(pos_cand - pos_pred) < 10 ) {
+						collision = true;
+					}
+				}
+			}
+
+		}
+	}
+
+	return collision;
+}
+
 void Vehicle::choose_next_state(const vector<Vehicle> &predictions, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y) {
-	float cost = pow(10,7);
-	vector<string> s_states = this->successor_states();
-	for(vector<string>::iterator it=s_states.begin(); it!=s_states.end(); ++it)	{
-		//this->MPC_plan(predictions, maps_s, maps_x, maps_y);
-		this->generate_trajectory(*it, predictions, maps_s, maps_x, maps_y);
-		//TODO: compare trajectory costs
-	}
-	//this->MPC_plan(predictions, maps_s, maps_x, maps_y);
-}
-
-
-vector<string> Vehicle::successor_states() {
-	/*
-	Provides the possible next states given the current state for the FSM
-	discussed in the course, with the exception that lane changes happen
-	instantaneously, so LCL and LCR can only transition back to KL.
-	*/
-	vector<string> states;
-	states.push_back("KL");
-	//string state = this->state;
-	if (state.compare("KL") == 0) {
-		if(lane != 0) states.push_back("LCL");
-		if(lane != 2) states.push_back("LCR");
-	}
-	//If state is "LCL" or "LCR", then just return "KL"
-	return states;
-}
-
-
-void Vehicle::generate_trajectory(string state, const vector<Vehicle> &predictions, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y) {
-	/*
-	Given a possible next state, generate the appropriate trajectory to realize the next state.
-	*/
-	if (state.compare("KL") == 0) {
-		this->state = state;
-		lane_cmd = lane;
-		this->MPC_plan(predictions, maps_s, maps_x, maps_y);
-	}
-	else if (state.compare("LCL") == 0) {
-		this->state = state;
-		lane_cmd = lane-1;
-	//	this->MPC_plan(predictions, maps_s, maps_x, maps_y);
-	}
-	else if (state.compare("LCR") == 0) {
-		this->state = state;
-		lane_cmd = lane+1;
-	//	this->MPC_plan(predictions, maps_s, maps_x, maps_y);
+	double vel_save = vel_cmd;
+	bool found = false;
+	if(lane_cmd == lane) {
+		vector<double> lanes = {lane_cmd};
+		vel_cmd = vel_save;
+		vel_inc = vel_inc_max;
+		this->JMT(maps_s, maps_x, maps_y);
+		//check if collision for KL
+		if(!check_collision(predictions, lanes, maps_s, maps_x, maps_y)) {
+			found = true;
+			next_path_x.clear();
+			next_path_y.clear();
+			for(unsigned int i=0; i<cand_path_x.size(); i++) {
+				next_path_x.push_back(cand_path_x[i]);
+				next_path_y.push_back(cand_path_y[i]);
+			}
+		}
+		//if collision try LCL (only if not in leftmost lane)
+		if(lane != 0 && found == false) {
+			lane_cmd = lane-1;
+			vector<double> lanes = {lane_cmd};
+			vel_cmd = vel_save;
+			vel_inc = 0.; //keep velocity during lane change
+			this->JMT(maps_s, maps_x, maps_y);
+			if(!check_collision(predictions, lanes, maps_s, maps_x, maps_y)) {
+				found = true;
+				next_path_x.clear();
+				next_path_y.clear();
+				for(unsigned int i=0; i<cand_path_x.size(); i++) {
+					next_path_x.push_back(cand_path_x[i]);
+					next_path_y.push_back(cand_path_y[i]);
+				}
+			}
+		}
+		if(lane != 2 && found == false) {
+			lane_cmd = lane+1;
+			vector<double> lanes = {lane_cmd};
+			vel_cmd = vel_save;
+			vel_inc = 0.; //keep velocity during lane change
+			this->JMT(maps_s, maps_x, maps_y);
+			if(!check_collision(predictions, lanes, maps_s, maps_x, maps_y)) {
+				found = true;
+				next_path_x.clear();
+				next_path_y.clear();
+				for(unsigned int i=0; i<cand_path_x.size(); i++) {
+					next_path_x.push_back(cand_path_x[i]);
+					next_path_y.push_back(cand_path_y[i]);
+				}
+			}
+		}
+		if(found == false) {
+			lane_cmd = lane;
+			vel_cmd = vel_save;
+			vel_inc = -vel_inc_max; //keep velocity during lane change
+			this->JMT(maps_s, maps_x, maps_y);
+			next_path_x.clear();
+			next_path_y.clear();
+			for(unsigned int i=0; i<cand_path_x.size(); i++) {
+				next_path_x.push_back(cand_path_x[i]);
+				next_path_y.push_back(cand_path_y[i]);
+			}
+		}
+	} else {
+		this->JMT(maps_s, maps_x, maps_y);
+		next_path_x.clear();
+		next_path_y.clear();
+		for(unsigned int i=0; i<cand_path_x.size(); i++) {
+			next_path_x.push_back(cand_path_x[i]);
+			next_path_y.push_back(cand_path_y[i]);
+		}
 	}
 }
 
@@ -272,7 +307,7 @@ void Vehicle::MPC_plan(const vector<Vehicle> &predictions, const vector<double> 
 			next_path_x.push_back(previous_path_x[i]);
 			next_path_y.push_back(previous_path_y[i]);
 		}
-		for(unsigned i=0; i<=60-previous_path_x.size(); i++) {
+		for(unsigned i=0; i<=40-previous_path_x.size(); i++) {
 			//derotate to global KOS and push on next_xy_vals containers
 			v_mpc.push_back(mpc_vars_KL[4][i]);
 			next_path_x.push_back(ref_x + x_mpc_KL[i]*cos(ref_yaw) - y_mpc_KL[i]*sin(ref_yaw));
@@ -301,8 +336,6 @@ void Vehicle::JMT(const vector<double> &maps_s, const vector<double> &maps_x, co
 	double ref_y = y_act;
 	double ref_yaw = yaw_act;
 	double prev_size = previous_path_x.size();
-	double ref_s = s_act;
-	if(prev_size > 0) ref_s = end_path_s;
 
 	//initialize ptsx,y with last two positions from previously planned path (if available) or generate previous car position
 	//from actual position and yaw angle
@@ -315,8 +348,8 @@ void Vehicle::JMT(const vector<double> &maps_s, const vector<double> &maps_x, co
 		ptsy.push_back(ref_y_prev);
 		ptsy.push_back(ref_y);
 	} else {
-		ref_x = this->previous_path_x[prev_size-1];
-		ref_y = this->previous_path_y[prev_size-1];
+		ref_x = previous_path_x[prev_size-1];
+		ref_y = previous_path_y[prev_size-1];
 
 		double ref_x_prev = this->previous_path_x[prev_size-2];
 		double ref_y_prev = this->previous_path_y[prev_size-2];
@@ -329,9 +362,9 @@ void Vehicle::JMT(const vector<double> &maps_s, const vector<double> &maps_x, co
 	}
 
 	//generate waypoints in 30, 60 and 90 meters distance from last already planned car position
-	vector<double> next_wp0 = getXY(ref_s+30, 2+4*this->lane, maps_s, maps_x, maps_y);
-	vector<double> next_wp1 = getXY(ref_s+60, 2+4*this->lane, maps_s, maps_x, maps_y);
-	vector<double> next_wp2 = getXY(ref_s+90, 2+4*this->lane, maps_s, maps_x, maps_y);
+	vector<double> next_wp0 = getXY(s_act+30, 2+4*lane_cmd, maps_s, maps_x, maps_y);
+	vector<double> next_wp1 = getXY(s_act+60, 2+4*lane_cmd, maps_s, maps_x, maps_y);
+	vector<double> next_wp2 = getXY(s_act+90, 2+4*lane_cmd, maps_s, maps_x, maps_y);
 
 	//add waypoints to ptsx,y containers
 	ptsx.push_back(next_wp0[0]);
@@ -354,16 +387,14 @@ void Vehicle::JMT(const vector<double> &maps_s, const vector<double> &maps_x, co
 	tk::spline s;
 	s.set_points(ptsx,ptsy);
 
-	vector< vector<double> > next_path_xy;
-
 	//define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
 
 	//push already planned path in next_xy_vals containers
-	next_path_x.clear();
-	next_path_y.clear();
+	cand_path_x.clear();
+	cand_path_y.clear();
 	for(unsigned int i=0; i<previous_path_x.size();i++) {
-		next_path_x.push_back(previous_path_x[i]);
-		next_path_y.push_back(previous_path_y[i]);
+		cand_path_x.push_back(previous_path_x[i]);
+		cand_path_y.push_back(previous_path_y[i]);
 	}
 
 	double target_x = 30.; //set lookahead distance (in vehicle fixed KOS! x-direction) to 30m
@@ -374,13 +405,141 @@ void Vehicle::JMT(const vector<double> &maps_s, const vector<double> &maps_x, co
 	double y_point = 0;
 
 	for(unsigned i=0; i<=50-previous_path_x.size(); i++) {
+		vel_cmd = bound(0.2*vel_max, vel_max, vel_cmd + vel_inc);
 		double N = (target_dist/(0.02*vel_cmd)); //compute number of position increments to cover target_dist when driving with vel_cmd
 		x_point += target_x/N; //increment x-position
 		y_point = s(x_point); //compute y-position with spline function
 
 		//derotate to global KOS and push on next_xy_vals containers
-		next_path_x.push_back(ref_x + x_point*cos(ref_yaw) - y_point*sin(ref_yaw));
-		next_path_y.push_back(ref_y + x_point*sin(ref_yaw) + y_point*cos(ref_yaw));
+		cand_path_x.push_back(ref_x + x_point*cos(ref_yaw) - y_point*sin(ref_yaw));
+		cand_path_y.push_back(ref_y + x_point*sin(ref_yaw) + y_point*cos(ref_yaw));
+	}
+}
+
+
+void Vehicle::JMT1(const vector<Vehicle> &predictions, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y) {
+	double ref_x = 0.;
+	double ref_y = 0.;
+	double ref_s = 0;
+	double ref_d = 0;
+	double ref_yaw = 0;
+	double ref_speed = 0;
+
+	//initialize ptsx,y with last two positions from previously planned path (if available) or generate previous car position
+	//from actual position and yaw angle
+	double prev_size = previous_path_x.size();
+	if(prev_size > 1) {
+		ref_speed = si[1];
+		ref_x = previous_path_x[prev_size-1];
+		ref_y = previous_path_y[prev_size-1];
+		ref_yaw = atan2(previous_path_y[prev_size-1]-previous_path_y[prev_size-2],previous_path_x[prev_size-1]-previous_path_x[prev_size-2]);
+		ref_s = end_path_s;
+		ref_d = end_path_d;
+	} else {
+		ref_speed = speed_act;
+		ref_x = x_act;
+		ref_y = y_act;
+		ref_s = s_act;
+		ref_d = d_act;
+		ref_yaw = yaw_act;
+	}
+
+	double T=1;
+	si << ref_s, ref_speed, 0.;
+	double v_tmp = ref_speed;
+	double s_tmp = ref_s;
+	for(unsigned int i=0; i<50; i++) {
+		v_tmp  = bound(0.001, vel_max, v_tmp+5*0.02);
+		s_tmp += v_tmp*0.02;
+	}
+	sf << s_tmp, v_tmp, 0.;
+
+	Eigen::VectorXd Cs(3,1);
+	Cs << si[0] + T*si[1] + 0.5*si[2]*pow(T,2),
+		  si[1] + T*si[2],
+		  si[2];
+
+	Eigen::VectorXd bs(3,1);
+	bs = sf-Cs;
+
+	Eigen::MatrixXd As(3,3);
+	As << pow(T,3), pow(T,4), pow(T,5),
+		  3*pow(T,2), 4*pow(T,3), 5*pow(T,4),
+		  6*T, 12*pow(T,2), 20*pow(T,3);
+	Eigen::MatrixXd Asi = As.inverse();
+
+	Eigen::VectorXd xs(3,1);
+	xs = Asi*bs;
+
+	vector <double> coeff_s = {si[0], si[1], .5*si[2]};
+	for(int i = 0; i < xs.size(); i++) {
+		coeff_s.push_back(xs.data()[i]);
+	}
+
+	vector<double> s_path;
+	vector<double> sp_path;
+	for(unsigned int i=0; i<50; i++) {
+		double t = i * 0.02;
+		s_path.push_back(coeff_s[0] + coeff_s[1]*t + coeff_s[2]*pow(t,2) + coeff_s[3]*pow(t,3) + coeff_s[4]*pow(t,4) + coeff_s[5]*pow(t,5));
+		sp_path.push_back(coeff_s[1] + coeff_s[2]*t + coeff_s[3]*pow(t,2) + coeff_s[4]*pow(t,3) + coeff_s[5]*pow(t,4));
+	}
+
+
+	vector<double> d_path;
+	if(fabs(ref_d - (2+4*lane_cmd)) > 0.3) {
+		di << ref_d, 0., 0.;
+		df << 2+4*lane_cmd, 0., 0.;
+
+		Eigen::VectorXd Cd(3,1);
+		Cd << di[0] + T*di[1] + 0.5*di[2]*pow(T,2),
+			  di[1] + T*di[2],
+			  di[2];
+
+		Eigen::VectorXd bd(3,1);
+		bd = df-Cd;
+
+		Eigen::MatrixXd Ad(3,3);
+		Ad << pow(T,3), pow(T,4), pow(T,5),
+			  3*pow(T,2), 4*pow(T,3), 5*pow(T,4),
+			  6*T, 12*pow(T,2), 20*pow(T,3);
+		Eigen::MatrixXd Adi = Ad.inverse();
+
+		Eigen::VectorXd xd(3,1);
+		xd = Adi*bd;
+
+		vector <double> coeff_d = {di[0], di[1], .5*di[2]};
+		for(int i = 0; i < xd.size(); i++) {
+			coeff_d.push_back(xd.data()[i]);
+		}
+		for(unsigned int i=0; i<50; i++) {
+			double t = i * 0.02;
+			d_path.push_back(coeff_d[0] + coeff_d[1]*t + coeff_d[2]*pow(t,2) + coeff_d[3]*pow(t,3) + coeff_d[4]*pow(t,4) + coeff_d[5]*pow(t,5));
+		}
+	} else {
+		for(unsigned int i=0; i<50; i++) {
+			double t = i * 0.02;
+			d_path.push_back(ref_d);
+		}
+	}
+
+	vector< vector<double> > new_path;
+	for(unsigned int i=0; i<50; i++) {
+		new_path.push_back(getXY(s_path[i], d_path[i], maps_s, maps_x, maps_y));
+	}
+
+
+	//push already planned path in next_xy_vals containers
+	next_path_x.clear();
+	next_path_y.clear();
+	for(unsigned int i=0; i<previous_path_x.size();i++) {
+		next_path_x.push_back(previous_path_x[i]);
+		next_path_y.push_back(previous_path_y[i]);
+	}
+	for(unsigned i=1; i<50-previous_path_x.size(); i++) {
+		//derotate to global KOS and push on next_xy_vals containers
+		next_path_x.push_back(new_path[i][0]);
+		next_path_y.push_back(new_path[i][1]);
+		si << s_path[i], sp_path[i], 0.;
 	}
 }
 

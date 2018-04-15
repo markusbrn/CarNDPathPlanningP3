@@ -34,6 +34,7 @@ public:
 	double lane_cmd;
 	double vel_cmd;
 	double vel_max;
+	double vel_inc_max;
 	double vel_inc;
 
 	//car state in xy and frenet coordinates
@@ -65,6 +66,11 @@ public:
 	vector<double> v_mpc;
 	vector<double> cand_v_mpc;
 
+	Eigen::VectorXd si;
+	Eigen::VectorXd sf;
+	Eigen::VectorXd di;
+	Eigen::VectorXd df;
+
 	/**
 	* Constructor
 	*/
@@ -78,19 +84,17 @@ public:
 	/**
 	 * Member Functions
 	 */
+	bool check_collision(const vector<Vehicle> &predictions, const vector<double> lanes, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
+
 	void choose_next_state(const vector<Vehicle> &predictions, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
-
-	vector<string> successor_states();
-
-	void generate_trajectory(string state, const vector<Vehicle> &predictions, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
-
-	void keep_lane_trajectory(const vector<Vehicle> &predictions, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
 
 	void predict(const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
 
 	void MPC_plan(const vector<Vehicle> &predictions, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
 
 	void JMT(const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
+
+	void JMT1(const vector<Vehicle> &predictions, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
 
 	void JMTQ(const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
 };

@@ -46,9 +46,15 @@ int main() {
   ego.state = "KL";
   ego.vel_cmd = 0.;
   ego.vel_max = 49.5*0.44704;
-  ego.vel_inc = 0.2*5*0.44704;
+  ego.vel_inc_max = 5*0.02;
+  ego.vel_inc = ego.vel_inc_max;
   Eigen::VectorXd state_init(6);
   ego.state_vector = state_init;
+  Eigen::VectorXd sd_init(3);
+  ego.si = sd_init;
+  ego.sf = sd_init;
+  ego.di = sd_init;
+  ego.df = sd_init;
 
   // map values for waypoint's x,y,s and d normalized normal vectors
   vector<double> map_waypoints_x;
@@ -119,10 +125,13 @@ int main() {
           	ego.d_act = j[1]["d"];
           	ego.yaw_act = deg2rad(double(j[1]["yaw"]));
           	ego.speed_act = double(j[1]["speed"]) / 2.24;
-          	if(ego.d_act < 4) ego.lane = 0;
-          	else if(4 <= ego.d_act < 8) ego.lane = 1;
-          	else ego.lane = 2;
-          	cout << ego.lane << endl;
+          	if(ego.d_act < 4) {
+          		ego.lane = 0;
+          	} else if(4 <= ego.d_act && ego.d_act < 8) {
+          		ego.lane = 1;
+          	} else {
+          		ego.lane = 2;
+          	}
 
           	// Previous path data given to the Planner
           	auto previous_path_x = j[1]["previous_path_x"];
@@ -153,9 +162,14 @@ int main() {
           			car.s_act = sensor_fusion[i][5];
           			car.d_act = sensor_fusion[i][6];
 
-          			if(car.d_act < 4) car.lane = 0;
-          			else if(4 <= car.d_act < 8) car.lane = 1;
-          			else car.lane = 2;
+          			if(car.d_act < 4) {
+          				car.lane = 0;
+          			} else if(4 <= car.d_act && car.d_act < 8) {
+          				cout << car.d_act <<endl;
+          				car.lane = 1;
+          			} else {
+          				car.lane = 2;
+          			}
 
           			//generate location predictions for current vehicle
           			car.predict(map_waypoints_s, map_waypoints_x, map_waypoints_y);
