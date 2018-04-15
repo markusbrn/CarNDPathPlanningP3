@@ -50,11 +50,6 @@ int main() {
   ego.vel_inc = ego.vel_inc_max;
   Eigen::VectorXd state_init(6);
   ego.state_vector = state_init;
-  Eigen::VectorXd sd_init(3);
-  ego.si = sd_init;
-  ego.sf = sd_init;
-  ego.di = sd_init;
-  ego.df = sd_init;
 
   // map values for waypoint's x,y,s and d normalized normal vectors
   vector<double> map_waypoints_x;
@@ -165,7 +160,6 @@ int main() {
           			if(car.d_act < 4) {
           				car.lane = 0;
           			} else if(4 <= car.d_act && car.d_act < 8) {
-          				cout << car.d_act <<endl;
           				car.lane = 1;
           			} else {
           				car.lane = 2;

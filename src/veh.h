@@ -66,11 +66,6 @@ public:
 	vector<double> v_mpc;
 	vector<double> cand_v_mpc;
 
-	Eigen::VectorXd si;
-	Eigen::VectorXd sf;
-	Eigen::VectorXd di;
-	Eigen::VectorXd df;
-
 	/**
 	* Constructor
 	*/
@@ -94,9 +89,6 @@ public:
 
 	void JMT(const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
 
-	void JMT1(const vector<Vehicle> &predictions, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
-
-	void JMTQ(const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
 };
 
 
