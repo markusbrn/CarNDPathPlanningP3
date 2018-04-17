@@ -8,7 +8,7 @@ In this Project a car is to be directed around a simulator course as fast as pos
 
 * predict: here the trajectories of the surrounding cars are prediced (it is assumed that they stay in their curren lane and maintain their current velocity).
 
-* MPC_plan (not used currently): can be currently used for lane keeping and should also brake if a car in front is detected (by setting the constraints in MPC.cpp accordingly).
+* MPC_plan (not used currently): could be used for lane keeping and should also brake if a car in front is detected (by setting the constraints in MPC.cpp accordingly).
 
 * JMT: the path planner from the video tutorial which is used to compute the next vehicle path steps.
 
