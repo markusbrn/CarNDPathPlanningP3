@@ -6,7 +6,6 @@
 #include <string>
 #include <iterator>
 #include "spline.h"
-//#include "cost.h"
 
 #include "assist.h"
 
@@ -201,126 +200,6 @@ void Vehicle::predict(const vector<double> &maps_s, const vector<double> &maps_x
 		//derotate to global KOS and push on next_xy_vals containers
 		next_path_x.push_back(x_act + x_point*cos(yaw_act) - y_point*sin(yaw_act));
 		next_path_y.push_back(y_act + x_point*sin(yaw_act) + y_point*cos(yaw_act));
-	}
-}
-
-
-void Vehicle::MPC_plan(const vector<Vehicle> &predictions, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y) {
-	double ref_x = 0.;
-	double ref_y = 0.;
-	double ref_s = 0;
-	double ref_yaw = 0;
-	double ref_speed = 0;
-
-	double prev_size = previous_path_x.size();
-	if(prev_size > 1) {
-		ref_speed = v_mpc[v_mpc.size()-1];
-		ref_x = previous_path_x[prev_size-1];
-		ref_y = previous_path_y[prev_size-1];
-		ref_yaw = atan2(previous_path_y[prev_size-1]-previous_path_y[prev_size-2],previous_path_x[prev_size-1]-previous_path_x[prev_size-2]);
-		ref_s = end_path_s;
-	} else {
-		ref_speed = speed_act;
-		ref_x = x_act;
-		ref_y = y_act;
-		ref_s = s_act;
-		ref_yaw = yaw_act;
-	}
-
-	//define containers for path planning polynomial
-	vector<double> ptsx;
-	vector<double> ptsy;
-
-	//generate waypoints in 30, 60 and 90 meters distance from last already planned car position
-	vector<double> next_wp0 = getXY(ref_s+30, 2+4*this->lane_cmd, maps_s, maps_x, maps_y);
-	vector<double> next_wp1 = getXY(ref_s+60, 2+4*this->lane_cmd, maps_s, maps_x, maps_y);
-	vector<double> next_wp2 = getXY(ref_s+90, 2+4*this->lane_cmd, maps_s, maps_x, maps_y);
-
-	//add waypoints to ptsx,y containers
-	ptsx.push_back(next_wp0[0]);
-	ptsx.push_back(next_wp1[0]);
-	ptsx.push_back(next_wp2[0]);
-	ptsy.push_back(next_wp0[1]);
-	ptsy.push_back(next_wp1[1]);
-	ptsy.push_back(next_wp2[1]);
-
-	//transform ptsx,y from global to vehicle fixed KOS (makes spline interpolation easier)
-	for(unsigned int i=0; i<ptsx.size(); i++) {
-		double shift_x = ptsx[i] - ref_x;
-		double shift_y = ptsy[i] - ref_y;
-
-		ptsx[i] =  shift_x * cos(ref_yaw) + shift_y * sin(ref_yaw);
-		ptsy[i] = -shift_x * sin(ref_yaw) + shift_y * cos(ref_yaw);
-	}
-
-	// fit polynomial through trajectory points
-	Eigen::VectorXd xvals = Eigen::VectorXd::Map(ptsx.data(),ptsx.size());
-	Eigen::VectorXd yvals = Eigen::VectorXd::Map(ptsy.data(),ptsy.size());
-	auto coeffs = polyfit(xvals,yvals,2);
-
-	vector< vector <vector <double> > > return_traj_no_xyv;
-	if(state == "KL") {
-		vector< vector<double> > next_xyv;
-		vector< vector<double> > closest_prediction;
-		double min_dist = 1000;
-		double min_index = 0;
-		for(unsigned int i=0; i<predictions.size(); i++) {
-			if( (fabs(predictions[i].d_act - (2+4*lane)) < 2) && (predictions[i].s_act-s_act)>0 ) {
-				if(predictions[i].s_act-s_act < min_dist) {
-					min_dist = predictions[i].s_act-s_act;
-					min_index = i;
-				}
-			}
-		}
-		if(min_dist < 1000) {
-			vector<double> closest_prediction_x;
-			vector<double> closest_prediction_y;
-			for(unsigned int j=prev_size-1; j<predictions[min_index].next_path_x.size(); j++) {
-							double shift_x = predictions[min_index].next_path_x[j] - ref_x;
-							double shift_y = predictions[min_index].next_path_y[j] - ref_y;
-
-							closest_prediction_x.push_back( shift_x * cos(ref_yaw) + shift_y * sin(ref_yaw));
-							closest_prediction_y.push_back(-shift_x * sin(ref_yaw) + shift_y * cos(ref_yaw));
-			}
-			closest_prediction.push_back(closest_prediction_x);
-			closest_prediction.push_back(closest_prediction_y);
-		}
-
-		Eigen::VectorXd state_vector_KL(6);
-		state_vector_KL << 0., 0., 0., ref_speed, -polyeval(coeffs, 0.), - atan(coeffs[1]);
-		MPC mpc_KL;
-		vector< vector<double> > mpc_vars_KL = this->mpc.Solve(state_vector_KL, coeffs, closest_prediction, "KL", 0.236332);
-		vector<double> x_mpc_KL;
-		vector<double> y_mpc_KL;
-		for(unsigned int i=0; i<mpc_vars_KL[1].size(); i++) {
-			x_mpc_KL.push_back(mpc_vars_KL[1][i]);
-			y_mpc_KL.push_back(mpc_vars_KL[2][i]);
-		}
-
-		//vector<double> next_path_x_KL;
-		//vector<double> next_path_y_KL;
-		//vector<double> v_mpc_KL;
-		next_path_x.clear();
-		next_path_y.clear();
-		v_mpc.clear();
-		for(unsigned int i=0; i<previous_path_x.size();i++) {
-			next_path_x.push_back(previous_path_x[i]);
-			next_path_y.push_back(previous_path_y[i]);
-		}
-		for(unsigned i=0; i<=40-previous_path_x.size(); i++) {
-			//derotate to global KOS and push on next_xy_vals containers
-			v_mpc.push_back(mpc_vars_KL[4][i]);
-			next_path_x.push_back(ref_x + x_mpc_KL[i]*cos(ref_yaw) - y_mpc_KL[i]*sin(ref_yaw));
-			next_path_y.push_back(ref_y + x_mpc_KL[i]*sin(ref_yaw) + y_mpc_KL[i]*cos(ref_yaw));
-		}
-		/*next_path_x.clear();
-		next_path_y.clear();
-		v_mpc.clear();
-		for(unsigned int i=0; i<cand_path_x.size(); i++) {
-			next_path_x.push_back(cand_path_x[i]);
-			next_path_y.push_back(cand_path_y[i]);
-			v_mpc.push_back(cand_v_mpc[i]);
-		}*/
 	}
 }
 

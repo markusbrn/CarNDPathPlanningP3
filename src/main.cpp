@@ -48,8 +48,6 @@ int main() {
   ego.vel_max = 49.5*0.44704;
   ego.vel_inc_max = 5*0.02;
   ego.vel_inc = ego.vel_inc_max;
-  Eigen::VectorXd state_init(6);
-  ego.state_vector = state_init;
 
   // map values for waypoint's x,y,s and d normalized normal vectors
   vector<double> map_waypoints_x;

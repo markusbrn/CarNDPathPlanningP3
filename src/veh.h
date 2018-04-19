@@ -8,7 +8,6 @@
 #include "Eigen-3.3/Eigen/Core"
 #include "Eigen-3.3/Eigen/QR"
 #include "Eigen-3.3/Eigen/Dense"
-#include "MPC.h"
 
 
 using namespace std;
@@ -58,14 +57,6 @@ public:
 	vector<double> cand_path_x;
 	vector<double> cand_path_y;
 
-	Eigen::VectorXd state_vector;
-	MPC mpc;
-	vector< vector<double> > mpc_vars;
-	vector<double> x_mpc;
-	vector<double> y_mpc;
-	vector<double> v_mpc;
-	vector<double> cand_v_mpc;
-
 	/**
 	* Constructor
 	*/
@@ -84,8 +75,6 @@ public:
 	void choose_next_state(const vector<Vehicle> &predictions, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
 
 	void predict(const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
-
-	void MPC_plan(const vector<Vehicle> &predictions, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
 
 	void JMT(const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y);
 
